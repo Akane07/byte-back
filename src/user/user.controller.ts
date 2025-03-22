@@ -4,10 +4,18 @@ import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
 import { ApiBody, ApiOperation, ApiQuery, ApiResponse } from '@nestjs/swagger';
 import { ChangePasswordDto, User } from 'src/auth/schemas/user.schema';
 import { AccessToken } from 'src/auth/dto/create-user.dto';
+import { countries } from './constants/countries';
 
 @Controller('user')
 export class UserController {
   constructor(private readonly userService: UserService) { }
+
+  @Get('countries')
+  @ApiOperation({ summary: 'Получить список стран', description: 'Получить список стран' })
+  @ApiResponse({ status: 200, description: 'Список строк, названий стран', type: [String] })
+  getCountries() {
+    return countries.sort();
+  }
 
   @Get('me')
   @UseGuards(JwtAuthGuard)
