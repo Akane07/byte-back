@@ -5,12 +5,14 @@ import { randomBytes, pbkdf2Sync } from 'crypto';
 import { User, UserDocument } from './schemas/user.schema';
 import { CreateUserDto } from './dto/create-user.dto';
 import { JwtService } from '@nestjs/jwt';
+import { MailService } from 'src/mail/mail.service';
 
 @Injectable()
 export class AuthService {
   constructor(
     @InjectModel(User.name) private readonly userModel: Model<UserDocument>,
     private readonly jwtService: JwtService,
+    private readonly mailService: MailService
   ) { }
 
   async registerUser(createUserDto: CreateUserDto): Promise<{ access_token: string }> {
@@ -26,28 +28,26 @@ export class AuthService {
     }
 
     const { salt, hash } = this.hashPassword(password);
-    const verificationToken = this.generateVerificationToken();
+    const verification_token = this.generateVerificationToken();
 
-    const newUser = new this.userModel({
+    const newUser = new this.userModel<Partial<User>>({
       name,
       email,
       passwordHash: hash,
       salt,
-      isVerified: false, // Новый пользователь не подтверждён
-      verificationToken,
+      is_verified: false, // Новый пользователь не подтверждён
+      verification_token,
     });
-
     const user = await newUser.save();
 
-    console.log(user);
-    
+    await this.mailService.sendVerificationEmail(email, verification_token);
 
     const access_token = this.generateToken(user.get('id') as string);
 
     return { access_token };
   }
 
-  async loginUser(email: string, password: string): Promise<any> {
+  async loginUser(email: string, password: string): Promise<{ access_token: string }> {
     const user = await this.userModel.findOne({ email }).exec();
 
     if (!user) {
@@ -61,6 +61,37 @@ export class AuthService {
 
     const access_token = this.generateToken(user.get('id') as string);
 
+    return { access_token };
+  }
+
+  async verifyUser(token: string): Promise<{ access_token: string }> {
+    const user = await this.userModel.findOne({ verification_token: token }).exec();
+    if (!user || user.is_verified || !user.verification_token || !token) {
+      throw new BadRequestException('Неверный токен верификации');
+    }
+    await this.userModel.updateOne({ verification_token: token }, { is_verified: true, verification_token: '' });
+    const access_token = this.generateToken(user.get('id') as string);
+    return { access_token };
+  }
+
+  public async changePassword(email: string, password: string, newPassword: string): Promise<{ access_token: string }> {
+    const user = await this.userModel.findOne({ email }).exec();
+    if (!user) {
+      throw new BadRequestException('Неверный e-mail');
+    }
+
+    const isPasswordValid = this.verifyPassword(password, user.salt, user.passwordHash);
+    if (!isPasswordValid) {
+      throw new BadRequestException('Неверный пароль');
+    }
+
+    if (!this.checkPassword(newPassword)) {
+      throw new BadRequestException('Пароль должен содержать не менее 8-ми символов, из которых минимум 1 буква и 1 цифра');
+    }
+
+    const { salt, hash } = this.hashPassword(newPassword);
+    await this.userModel.updateOne({ email }, { passwordHash: hash, salt });
+    const access_token = this.generateToken(user.get('id') as string);
     return { access_token };
   }
 
@@ -81,7 +112,7 @@ export class AuthService {
   }
 
   private generateVerificationToken(): string {
-    return randomBytes(32).toString('hex') + (new Date().toISOString()); // Генерация уникального токена
+    return Math.floor(Math.random() * 1000000).toString();
   }
 
   private generateToken(userId: string): string {

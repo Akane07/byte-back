@@ -5,6 +5,7 @@ import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { JwtModule } from '@nestjs/jwt';
 import { JwtStrategy } from './jwt.strategy';
+import { MailModule } from 'src/mail/mail.module';
 
 @Module({
   imports: [
@@ -12,8 +13,11 @@ import { JwtStrategy } from './jwt.strategy';
     JwtModule.register({
       secret: 'stepa_and_dima_and_ilya_ETONASHPROJECTSUKA',
       signOptions: { expiresIn: '1w' },
-    })],
+    }),
+    MailModule,
+  ],
   providers: [AuthService, JwtStrategy],
   controllers: [AuthController],
+  exports: [AuthService],
 })
 export class AuthModule {}

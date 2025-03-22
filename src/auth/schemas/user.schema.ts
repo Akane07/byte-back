@@ -1,10 +1,12 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
+import { ApiProperty } from '@nestjs/swagger';
 import { Document } from 'mongoose';
 
 export type UserDocument = User & Document;
 
 @Schema()
 export class User {
+  @ApiProperty({ example: 'john_doe@example.com', description: 'Логин пользователя' })
   @Prop({ required: true, unique: true })
   email: string;
 
@@ -14,41 +16,60 @@ export class User {
   @Prop({ required: true })
   salt: string;
 
+  @ApiProperty({ example: 'John Doe', description: 'Имя пользователя' })
   @Prop({ default: "" })
   name: string;
 
+  @ApiProperty({ example: 'description', description: 'Описание пользователя' })
   @Prop({ required: false })
   description: string;
 
+  @ApiProperty({ example: 'avatar', description: 'Аватар пользователя' })
   @Prop({ default: "" })
   avatar: string;
 
+  @ApiProperty({ example: true, description: 'Подтвержден ли email' })
   @Prop({ default: false })
-  isVerified: boolean;
+  is_verified: boolean;
 
   @Prop({ required: false })
-  verificationToken: string | null; // Токен для подтверждения email
+  verification_token: string | null; // Токен для подтверждения email
 
+  @ApiProperty({ example: 'Russia', description: 'Страна пользователя' })
   @Prop({ required: false })
   country: string | null;
 
+  @ApiProperty({ example: '2022-01-01T00:00:00.000Z', description: 'Дата последнего входа' })
   @Prop({ required: false })
   last_seen: string | null;
 
+  @ApiProperty({ example: '2022-01-01T00:00:00.000Z', description: 'Дата создания аккаунта' })
   @Prop({ default: Date.now })
   created_at: Date;
 
+  @ApiProperty({ example: 5, description: 'Рейтинг пользователя' })
   @Prop({ default: 0 })
   rating: number;
 
+  @ApiProperty({ example: 5, description: 'Количество заказов пользователя' })
   @Prop({ default: 0 })
   orders_count: number;
 
+  @ApiProperty({ example: 5, description: 'Количество отзывов пользователя' })
   @Prop({ default: 0 })
   reviews_count: number;
 
+  @ApiProperty({ example: ['Vue', 'React', 'Angular'], description: 'Массив навыков' })
   @Prop({ default: [] })
   speciality: string[];
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);
+
+export class ChangePasswordDto {
+  @ApiProperty({ example: 'password', description: 'Пароль пользователя' })
+  password: string;
+
+  @ApiProperty({ example: 'new password', description: 'Пароль пользователя' })
+  newPassword: string;
+}
