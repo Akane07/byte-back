@@ -3,12 +3,14 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Order, OrderDocument, OrderResponse, OrderResponseDocument } from './schemas/order.schema';
 import { CreateOrderDto } from './dto/create-order.dto';
+import { UserService } from '../user/user.service';
 
 @Injectable()
 export class OrderService {
     constructor(
         @InjectModel(Order.name) private readonly orderModel: Model<OrderDocument>,
         @InjectModel(OrderResponse.name) private readonly orderResponseModel: Model<OrderResponseDocument>,
+        private readonly userService: UserService,
     ) { }
 
     async getOrderList() {
@@ -33,6 +35,7 @@ export class OrderService {
     async createOrder(userId: string, body: CreateOrderDto) {
         const order = new this.orderModel({ ...body, user_id: userId });
         await order.save();
+        await this.userService.patchUserOrdersCount(userId, (await this.getUserOrders(userId)).length);
         return order;
     }
 
@@ -61,6 +64,7 @@ export class OrderService {
         if (!order) {
             throw new NotFoundException('Order not found');
         }
+        await this.userService.patchUserOrdersCount(order.user_id, (await this.getUserOrders(order.user_id)).length);
         return 'order deleted';
     }
 
@@ -89,15 +93,15 @@ export class OrderService {
     async viewOrder(userId: string, orderId: string) {
         const order = await this.orderModel.findById(orderId);
         if (!order) {
-          throw new Error('Заказ не найден');
+            throw new Error('Заказ не найден');
         }
-      
+
         // Если юзер ещё не смотрел этот заказ, добавляем его в список
         if (!order.viewed_by.includes(userId)) {
-          order.viewed_by.push(userId);
-          await order.save();
+            order.viewed_by.push(userId);
+            await order.save();
         }
-      
+
         return order;
-      }
+    }
 }

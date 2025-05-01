@@ -24,6 +24,12 @@ export class UserService {
         return this.retrunUser(user);
     }
 
+    async patchUserOrdersCount(userId: string, ordersCount: number) {
+        const user = await this.userModel.findById<UserDocument>(userId).exec();
+        user.orders_count = ordersCount;
+        await user.save();
+    }
+
     async changePassword(userId: string, password: string, newPassword: string) {
         const { access_token } = await this.authService.changePassword(userId, password, newPassword);
         return access_token;
