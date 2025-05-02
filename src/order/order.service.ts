@@ -77,6 +77,11 @@ export class OrderService {
 
         const orderResponse = new this.orderResponseModel(response);
         await orderResponse.save();
+
+        const order = await this.orderModel.findById(orderId).exec();
+        order.response_count += 1;
+        order.save();
+
         return orderResponse;
     }
 
