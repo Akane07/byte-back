@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { User, UserDocument } from 'src/auth/schemas/user.schema';
 import { Model } from 'mongoose';
@@ -21,8 +21,33 @@ export class UserService {
         user.last_seen = new Date().toISOString();
         await user.save();
 
-        return this.retrunUser(user);
+        return this.returnUser(user);
     }
+
+    async updateUser(_id: string, updateData: Partial<User>) {
+        if (updateData.passwordHash || updateData.salt || updateData.id
+          || updateData.verification_token || updateData.last_seen || updateData.created_at ||
+        updateData.rating || updateData.orders_count || updateData.reviews_count) {
+          throw new BadRequestException("Невозможно изменить данные пользоватея");
+        }
+    
+        let user = await this.userModel.findById(_id).exec();
+
+        if (user.id !== _id) {
+            throw new BadRequestException("Невозможно изменить данные пользоватея");
+        }
+    
+        if (updateData.email) {
+        } else {
+          user = await this.userModel.findByIdAndUpdate(_id, updateData, { new: true });
+        }
+    
+        if (!user) {
+          throw new BadRequestException("Пользователя не существует");
+        }
+    
+        return this.returnUser(user);
+      }
 
     async patchUserOrdersCount(userId: string, ordersCount: number) {
         const user = await this.userModel.findById<UserDocument>(userId).exec();
@@ -35,7 +60,7 @@ export class UserService {
         return access_token;
     }
 
-    private retrunUser(user: any) {
+    private returnUser(user: any) {
         const {
             __v,
             _id,

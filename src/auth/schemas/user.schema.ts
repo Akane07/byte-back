@@ -6,6 +6,8 @@ export type UserDocument = User & Document;
 
 @Schema()
 export class User {
+  id: string;
+  
   @ApiProperty({ example: 'john_doe@example.com', description: 'Логин пользователя' })
   @Prop({ required: true, unique: true })
   email: string;
@@ -20,9 +22,17 @@ export class User {
   @Prop({ default: "" })
   name: string;
 
+  @ApiProperty({ example: 'John228', description: 'Ник пользователя' })
+  @Prop({ default: "" })
+  nickname: string;
+
   @ApiProperty({ example: 'description', description: 'Описание пользователя' })
   @Prop({ required: false })
   description: string;
+
+  @ApiProperty({ example: '89281112233', description: 'Номер телефона' })
+  @Prop({ required: false })
+  phone: string;
 
   @ApiProperty({ example: 'avatar', description: 'Аватар пользователя' })
   @Prop({ default: "" })

@@ -25,6 +25,14 @@ export class UserController {
     return this.userService.getUser(req.user.userId);
   }
 
+  @Post('me')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Изменить информацию профиля', description: 'Изменить информацию в своем профиле' })
+  @ApiResponse({ status: 200, description: 'Пользователь', type: User })
+  async patchMe(@Request() req, @Body() updateData: any) {
+    return await this.userService.updateUser(req.user.userId, updateData);
+  }
+
   @Get(':id')
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Получить информацию о пользователе', description: 'Получить информацию о пользователе' })
