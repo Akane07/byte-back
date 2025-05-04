@@ -71,7 +71,11 @@ export class User {
 
   @ApiProperty({ example: ['Vue', 'React', 'Angular'], description: 'Массив навыков' })
   @Prop({ default: [] })
-  speciality: string[];
+  skills: string[];
+
+  @ApiProperty({ example: 'Vue разработчик', description: 'Специальность' })
+  @Prop({ default: '' })
+  speciality: string;
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);
