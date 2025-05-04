@@ -12,4 +12,7 @@ export class PortfolioDto {
 
     @ApiProperty({ example: ['https://example.com/image1.jpg', 'https://example.com/image2.jpg'], description: 'Массив ссылок на изображения' })
     readonly images: string[];
+
+    @ApiProperty({ example: true, description: 'Черновик ли это' })
+    readonly draft?: boolean;
 }

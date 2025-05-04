@@ -6,6 +6,7 @@ export type PortfolioDocument = Portfolio & Document;
 
 @Schema()
 export class Portfolio {
+  id: string;
 
   @ApiProperty({ example: '1', description: 'ID пользователя' })
   @Prop({ required: true })
@@ -30,6 +31,10 @@ export class Portfolio {
   @ApiProperty({ example: '2022-01-01T00:00:00.000Z', description: 'Дата создания' })
   @Prop({ required: true, default: Date.now })
   created_at: Date;
+
+  @ApiProperty({ example: true, description: 'Черновик ли это' })
+  @Prop({ required: false })
+  readonly draft?: boolean;
 }
 
 export const PortfolioSchema = SchemaFactory.createForClass(Portfolio);
