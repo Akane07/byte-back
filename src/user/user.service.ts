@@ -56,7 +56,8 @@ export class UserService {
     }
 
     async changePassword(userId: string, password: string, newPassword: string) {
-        const { access_token } = await this.authService.changePassword(userId, password, newPassword);
+        const user = await this.userModel.findById(userId).exec();
+        const { access_token } = await this.authService.changePassword(user.email, password, newPassword);
         return access_token;
     }
 

@@ -1,10 +1,13 @@
-import { Body, Controller, Get, Param, Post, Request, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Request, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
 import { UserService } from './user.service';
 import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
 import { ApiBody, ApiOperation, ApiQuery, ApiResponse } from '@nestjs/swagger';
 import { ChangePasswordDto, User } from 'src/auth/schemas/user.schema';
 import { AccessToken } from 'src/auth/dto/create-user.dto';
 import { countries } from './constants/countries';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { extname } from 'path';
+import { diskStorage } from 'multer';
 
 @Controller('user')
 export class UserController {
@@ -53,5 +56,44 @@ export class UserController {
   @ApiResponse({ status: 200, description: 'Токен', type: AccessToken })
   changePassword(@Request() req: any, @Body() body: { password: string; newPassword: string }) {
     return this.userService.changePassword(req.user.userId, body.password, body.newPassword);
+  }
+
+  @Post('set_avatar')
+  @UseGuards(JwtAuthGuard)
+  @UseInterceptors(
+    FileInterceptor('avatar', {
+      storage: diskStorage({
+        destination: './uploads/avatars', // Путь сохранения файла
+        filename: (req, file, callback) => {
+          const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+          callback(null, `${uniqueSuffix}${extname(file.originalname)}`);
+        },
+      }),
+      fileFilter: (req, file, callback) => {
+        const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/jpg'];
+        if (allowedMimeTypes.includes(file.mimetype)) {
+          callback(null, true);
+        } else {
+          callback(new Error('Invalid file type. Only JPEG, PNG are allowed.'), false);
+        }
+      },
+      limits: {
+        fileSize: 3 * 1024 * 1024, // Максимальный размер файла — 5 МБ
+      },
+    }),
+  )
+  async setAvatar(
+    @Request() req,
+    @UploadedFile() file: any,
+  ): Promise<{ message: string; avatarUrl: string }> {
+    if (!file) {
+      throw new Error('File upload failed');
+    }
+
+    const userId = req.user.userId; // Извлекаем userId из токена
+    const avatarUrl = `/uploads/avatars/${file.filename}`;
+    await this.userService.updateUser(userId, { avatar: avatarUrl });
+
+    return { message: 'Avatar updated successfully', avatarUrl };
   }
 }
