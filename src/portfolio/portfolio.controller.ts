@@ -1,9 +1,12 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Request, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Request, UploadedFiles, UseGuards, UseInterceptors } from '@nestjs/common';
 import { PortfolioService } from './portfolio.service';
 import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
 import { ApiBody, ApiOperation, ApiQuery, ApiResponse } from '@nestjs/swagger';
 import { Portfolio } from './schemas/portfolio.schema';
 import { PortfolioDto } from './dto/portfolio.dto';
+import { extname } from 'path';
+import { diskStorage } from 'multer';
+import { FileFieldsInterceptor } from '@nestjs/platform-express';
 
 @Controller('portfolio')
 export class PortfolioController {
@@ -15,6 +18,14 @@ export class PortfolioController {
     @ApiResponse({ status: 200, description: 'Список проекто в портфолио', type: [Portfolio] })
     getPortfolioList(@Request() req: any) {
       return this.portfolioService.getPortfolioList(req.user.userId);
+    }
+
+    @Get(':id')
+    @UseGuards(JwtAuthGuard)
+    @ApiOperation({ summary: 'Список проектов в портфолио', description: 'Получение списка проектов пользователя' })
+    @ApiResponse({ status: 200, description: 'Список проекто в портфолио', type: [Portfolio] })
+    getPortfolio(@Param() params: { id: string }) {
+      return this.portfolioService.getPortfolio(params.id);
     }
 
     @Get('user/:id')
@@ -31,8 +42,37 @@ export class PortfolioController {
     @ApiOperation({ summary: 'Добавление проекта в портфолио', description: 'Добавление проекта в портфолио' })
     @ApiBody({ type: PortfolioDto, description: 'Данные проекта', required: true })
     @ApiResponse({ status: 200, description: 'Проект добавлен в портфолио', type: Portfolio })
-    createPortfolio(@Request() req: any, @Body() body: PortfolioDto) {
-      return this.portfolioService.createPortfolio(req.user.userId, body);
+    @UseInterceptors(
+      FileFieldsInterceptor(
+        [
+          { name: 'video', maxCount: 1 },
+          { name: 'images', maxCount: 5 },
+        ],
+        {
+          storage: diskStorage({
+            destination: './uploads/files/',
+            filename: (req, file, cb) => {             
+              const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+              cb(null, uniqueSuffix + extname(file.originalname));
+            },
+          }),
+        },
+      ),
+    )
+    createPortfolio(
+      @Request() req: any,
+      @UploadedFiles()
+      files: {
+        video?: any[];
+        images?: any[];
+      },
+      @Body() body: PortfolioDto,
+    ) {      
+      return this.portfolioService.createPortfolio(req.user.userId, {
+        ...body,
+        video: files.video ? `/uploads/files/${files.video?.[0]?.filename}` : '',
+        images: files.images?.map((file) => `/uploads/files/${file.filename}`),
+      });
     }
 
     @Patch(':id')

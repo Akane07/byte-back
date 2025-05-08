@@ -1,4 +1,5 @@
 import { ApiProperty } from "@nestjs/swagger";
+import { File } from "buffer";
 
 export class PortfolioDto {
     @ApiProperty({ example: 'Бебебе с бябябя', description: 'Название проекта' })
@@ -10,9 +11,9 @@ export class PortfolioDto {
     @ApiProperty({ example: 'Разработчик', description: 'Роль в проекте' })
     readonly role: string;
 
-    @ApiProperty({ example: ['https://example.com/image1.jpg', 'https://example.com/image2.jpg'], description: 'Массив ссылок на изображения' })
+    @ApiProperty({ example: ['https://example.com/image1.jpg', 'https://example.com/image2.jpg'], description: 'Массив изображений' })
     readonly images: string[];
 
-    @ApiProperty({ example: true, description: 'Черновик ли это' })
-    readonly draft?: boolean;
+    @ApiProperty({ example: 'https://example.com/image1.jpg', description: 'Видео' })
+    readonly video?: string;
 }

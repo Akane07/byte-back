@@ -1,5 +1,6 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { ApiProperty } from '@nestjs/swagger';
+import { File } from 'buffer';
 import { Document } from 'mongoose';
 
 export type PortfolioDocument = Portfolio & Document;
@@ -28,13 +29,13 @@ export class Portfolio {
   @Prop({ required: true })
   images: string[];
 
+  @ApiProperty({ example: 'https://example.com/image1.jpg', description: 'Видео' })
+  @Prop({ required: false })
+  video?: string;
+
   @ApiProperty({ example: '2022-01-01T00:00:00.000Z', description: 'Дата создания' })
   @Prop({ required: true, default: Date.now })
   created_at: Date;
-
-  @ApiProperty({ example: true, description: 'Черновик ли это' })
-  @Prop({ required: false })
-  readonly draft?: boolean;
 }
 
 export const PortfolioSchema = SchemaFactory.createForClass(Portfolio);

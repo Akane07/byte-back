@@ -15,6 +15,12 @@ export class PortfolioService {
         return portfolios;
     }
 
+    async getPortfolio(id: string) {
+        const portfolio = await this.portfolioModel.findById(id);
+
+        return portfolio;
+    }
+
     async createPortfolio(userId: string, body: PortfolioDto) {
         const portfolio = new this.portfolioModel({ ...body, user_id: userId });
         await portfolio.save();
