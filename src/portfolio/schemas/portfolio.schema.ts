@@ -25,6 +25,21 @@ export class Portfolio {
   @Prop({ required: true, default: '' })
   role: string;
 
+  @ApiProperty({ example: ['Vue', 'Vite'], description: 'Массив навыков' })
+  @Prop({ required: true, default: [] })
+  readonly skills: string[];
+
+  @ApiProperty({ example: ['1', '2'], description: 'Массив просмотренных ID пользователей' })
+  @Prop({ type: [String], default: [], required: true })
+  viewed_by: string[];
+
+  @Prop({ required: false })
+  viewed: number;
+
+  @ApiProperty({ example: ['1', '2'], description: 'Массив лайков по ID пользователей' })
+  @Prop({ type: [String], default: [], required: true })
+  liked_by: string[];
+
   @ApiProperty({ example: ['https://example.com/image1.jpg', 'https://example.com/image2.jpg'], description: 'Массив ссылок на изображения' })
   @Prop({ required: true })
   images: string[];

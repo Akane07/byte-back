@@ -101,7 +101,6 @@ export class OrderService {
             throw new Error('Заказ не найден');
         }
 
-        // Если юзер ещё не смотрел этот заказ, добавляем его в список
         if (!order.viewed_by.includes(userId)) {
             order.viewed_by.push(userId);
             await order.save();
