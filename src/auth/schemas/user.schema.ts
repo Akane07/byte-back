@@ -7,7 +7,7 @@ export type UserDocument = User & Document;
 @Schema()
 export class User {
   id: string;
-  
+
   @ApiProperty({ example: 'john_doe@example.com', description: 'Логин пользователя' })
   @Prop({ required: true, unique: true })
   email: string;
@@ -76,6 +76,18 @@ export class User {
   @ApiProperty({ example: 'Vue разработчик', description: 'Специальность' })
   @Prop({ default: '' })
   speciality: string;
+
+  @ApiProperty({ example: '@LinerMVVM', description: 'Ссылка на аккаунт' })
+  @Prop({ default: '' })
+  telegram: string;
+
+  @ApiProperty({ example: '@LinerMVVM', description: 'Ссылка на аккаунт' })
+  @Prop({ default: '' })
+  behance: string;
+
+  @ApiProperty({ example: '@LinerMVVM', description: 'Ссылка на аккаунт' })
+  @Prop({ default: '' })
+  git: string;
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);
