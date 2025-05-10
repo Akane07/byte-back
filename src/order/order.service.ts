@@ -13,8 +13,9 @@ export class OrderService {
         private readonly userService: UserService,
     ) { }
 
-    async getOrderList() {
-        const orders = await this.orderModel.find().exec();
+    async getOrderList(userId: string) {
+        console.log(userId);
+        const orders = await this.orderModel.find({ user_id: { $ne: userId } }).exec();
 
         return orders;
     }
@@ -28,7 +29,12 @@ export class OrderService {
     }
 
     async getUserOrders(userId: string) {
-        const orders = await this.orderModel.find({ user_id: userId }).exec();
+        const orders = await this.orderModel.find({ user_id: userId, draft: { $ne: true } }).exec();
+        return orders;
+    }
+
+    async getUserDrafts(userId: string) {
+        const orders = await this.orderModel.find({ user_id: userId, draft: { $ne: false } }).exec();
         return orders;
     }
 
@@ -95,6 +101,31 @@ export class OrderService {
         return response;
     }
 
+    async getUserResponses(userId: string) {
+        const responses = await this.orderResponseModel.find({ user_id: userId }).lean();
+
+        if (!responses.length) return [];
+
+        const orderIds = responses.map(res => res.order_id);
+        const orders = await this.orderModel.find({ _id: { $in: orderIds } }).lean();
+        const orderTitleMap = new Map(orders.map(order => [order._id.toString(), order.title]));
+        const orderPriceMap = new Map(orders.map(order => [order._id.toString(), order.price]));
+        const orderTypeMap = new Map(orders.map(order => [order._id.toString(), order.price_type]));
+        const responsesWithTitles = responses.map(res => ({
+            created_at: res.created_at,
+            description: res.description,
+            order_id: res.order_id,
+            user_id: res.user_id,
+            id: res._id,
+            viewed: res.viewed,
+            title: orderTitleMap.get(res.order_id) || '',
+            price: orderPriceMap.get(res.order_id) || '',
+            price_type: orderTypeMap.get(res.order_id) || '',
+        }));
+
+        return responsesWithTitles;
+    }
+
     async viewOrder(userId: string, orderId: string) {
         const order = await this.orderModel.findById(orderId);
         if (!order) {
@@ -107,5 +138,22 @@ export class OrderService {
         }
 
         return order;
+    }
+
+    async deleteOrderResponse(user_id: string, order_id: string, response_id: string) {
+        const response = await this.orderResponseModel.findById(response_id);
+
+        if (response.user_id !== user_id) return;
+
+        await response.deleteOne();
+
+        const order = await this.orderModel.findById(order_id);
+
+        if (!order) return;
+
+        order.response_count -= 1;
+        order.save();
+
+        return true;
     }
 }

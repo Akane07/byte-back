@@ -61,6 +61,10 @@ export class Order {
   @Prop({ required: true, default: true })
   is_active: boolean;
 
+  @ApiProperty({ example: true, description: 'Черновик ли это' })
+  @Prop({ required: true, default: false })
+  draft: boolean;
+
   @ApiProperty({ example: '2022-01-01T00:00:00.000Z', description: 'Дата создания' })
   @Prop({ required: true, default: Date.now })
   created_at: Date;
@@ -108,6 +112,9 @@ export class OrderResponse {
   @ApiProperty({ example: '2022-01-01T00:00:00.000Z', description: 'Дата создания' })
   @Prop({ required: true, default: Date.now })
   created_at: Date;
+
+  @Prop({ required: true, default: false })
+  viewed: boolean;
 }
 
 export const OrderResponseSchema = SchemaFactory.createForClass(OrderResponse);

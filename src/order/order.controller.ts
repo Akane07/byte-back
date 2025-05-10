@@ -13,8 +13,8 @@ export class OrderController {
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Список заказов', description: 'Получение списка заказов' })
   @ApiResponse({ status: 200, description: 'Список заказов', type: [Order] })
-  getOrderList() {
-    return this.orderService.getOrderList();
+  getOrderList(@Request() req: any) {
+    return this.orderService.getOrderList(req.user.userId);
   }
 
   @Get(':id')
@@ -33,6 +33,15 @@ export class OrderController {
   @ApiResponse({ status: 200, description: 'Список заказов пользователя', type: [Order] })
   getUserOrders(@Param() params: { id: string }) {
     return this.orderService.getUserOrders(params.id);
+  }
+
+  @Get('user/:id/drafts')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Черновики пользователя', description: 'Список черновиков пользователя' })
+  @ApiQuery({ name: 'id', type: String, required: true, description: 'ID пользователя' })
+  @ApiResponse({ status: 200, description: 'Список черновиков пользователя', type: [Order] })
+  getUserDrafts(@Param() params: { id: string }) {
+    return this.orderService.getUserDrafts(params.id);
   }
 
   @Patch(':id')
@@ -97,6 +106,23 @@ export class OrderController {
   @ApiResponse({ status: 200, description: 'Отклик', type: OrderResponse })
   getOrderResponse(@Request() req: any, @Param() params: { id: string }) {
     return this.orderService.getOrderResponse(req.user.userId, params.id);
+  }
+
+  @Delete(':id/response/:rid')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Удаление отклика', description: 'Удаление своего отклика к заказу' })
+  @ApiQuery({ name: 'id', type: String, required: true, description: 'ID заказа' })
+  @ApiQuery({ name: 'rid', type: String, required: true, description: 'ID отклика' })
+  deleteOrderResponse(@Request() req: any, @Param() params: { id: string, rid: string }) {
+    return this.orderService.deleteOrderResponse(req.user.userId, params.id, params.rid);
+  }
+
+  @Post('responses')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Получение откликов пользователя', description: 'Получение своих откликов на все заказы' })
+  @ApiResponse({ status: 200, description: 'Отклики', type: [OrderResponse] })
+  getUserResponses(@Request() req: any) {
+    return this.orderService.getUserResponses(req.user.userId);
   }
 
   @Post(':id/viewed')
