@@ -14,7 +14,6 @@ export class OrderService {
     ) { }
 
     async getOrderList(userId: string) {
-        console.log(userId);
         const orders = await this.orderModel.find({ user_id: { $ne: userId } }).exec();
 
         return orders;

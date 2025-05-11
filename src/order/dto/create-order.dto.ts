@@ -8,10 +8,13 @@ export class CreateOrderDto {
     readonly description: string;
 
     @ApiProperty({ example: 123, description: 'Цена' })
-    readonly price?: number;
+    readonly price: number | {
+        from: number;
+        to: number;
+    };
 
     @ApiProperty({ example: 'fixed', description: 'Тип цены', enum: ['contract', 'fixed'] })
-    readonly price_type: 'contract' | 'fixed'; // договорная или фиксированная цена
+    readonly price_type: 'contract' | 'fixed' | 'hourly';
 
     @ApiProperty({ example: 'one-time', description: 'Тип заказа', enum: ['one-time', 'reusable'] })
     readonly type: 'one-time' | 'reusable';
@@ -20,13 +23,18 @@ export class CreateOrderDto {
     readonly for_experts: boolean;
 
     @ApiProperty({ example: 'contract', description: 'Дедлайны. enum, или строка ISO даты', enum: ['contract', 'more-than-month', 'less-than-month'] })
-    readonly deadlines: 'contract' | 'more-than-month' | 'less-than-month' | string;
+    readonly deadlines: 'less-week' | 'more-week' | 'less-month' | 'more-month' | 'contract' | 'custom';
+
+    deadline_date?: {
+        from: string;
+        to: string;
+    };
 
     @ApiProperty({ example: ['Vue', 'React', 'Angular'], description: 'Массив навыков' })
     readonly skills: string[];
 
-    @ApiProperty({ example: '1', description: 'ID категории' })
-    readonly category: string;
+    @ApiProperty({ example: 1, description: 'ID категории' })
+    readonly category: number;
 }
 
 export class CreateResponseDto {

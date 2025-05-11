@@ -9,10 +9,10 @@ import { UserModule } from 'src/user/user.module';
   imports: [
     MongooseModule.forFeature([{ name: Order.name, schema: OrderSchema }]),
     MongooseModule.forFeature([{ name: OrderResponse.name, schema: OrderResponseSchema }]),
-    UserModule
+    UserModule,
   ],
   controllers: [OrderController],
   providers: [OrderService],
 })
-export class OrderModule {}
+export class OrderModule { }
 

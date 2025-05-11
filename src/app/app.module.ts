@@ -6,6 +6,7 @@ import { UserModule } from '../user/user.module';
 import { AuthModule } from '../auth/auth.module';
 import { OrderModule } from 'src/order/order.module';
 import { PortfolioModule } from 'src/portfolio/portfolio.module';
+import { CategoryModule } from 'src/category/category.module';
 
 @Module({
   imports: [
@@ -13,7 +14,8 @@ import { PortfolioModule } from 'src/portfolio/portfolio.module';
     UserModule,
     AuthModule,
     OrderModule,
-    PortfolioModule
+    PortfolioModule,
+    CategoryModule,
   ],
   controllers: [AppController],
   providers: [AppService],
