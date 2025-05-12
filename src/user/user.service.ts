@@ -11,43 +11,45 @@ export class UserService {
         private readonly authService: AuthService,
     ) { }
 
-    async getUser(userId: string) {
+    async getUser(userId: string, tokenId?: string) {
         const user = await this.userModel.findById<UserDocument>(userId).exec();
 
         if (!user) {
             throw new NotFoundException("User does not exist");
         }
 
-        user.last_seen = new Date().toISOString();
-        await user.save();
+        if (userId === tokenId) {
+            user.last_seen = new Date().toISOString();
+            await user.save();
+        }
 
         return this.returnUser(user);
     }
 
     async updateUser(_id: string, updateData: Partial<User>) {
         if (updateData.passwordHash || updateData.salt || updateData.id
-          || updateData.verification_token || updateData.last_seen || updateData.created_at ||
-        updateData.rating || updateData.orders_count || updateData.reviews_count) {
-          throw new BadRequestException("Невозможно изменить данные пользоватея");
+            || updateData.verification_token || updateData.last_seen || updateData.created_at ||
+            updateData.rating || updateData.orders_count || updateData.reviews_count) {
+            throw new BadRequestException("Невозможно изменить данные пользоватея");
         }
-    
+
         let user = await this.userModel.findById(_id).exec();
 
         if (user.id !== _id) {
             throw new BadRequestException("Невозможно изменить данные пользоватея");
         }
-    
+
         if (updateData.email) {
         } else {
-          user = await this.userModel.findByIdAndUpdate(_id, updateData, { new: true });
+            user = await this.userModel.findByIdAndUpdate(_id, updateData, { new: true });
         }
-    
+
         if (!user) {
-          throw new BadRequestException("Пользователя не существует");
+            throw new BadRequestException("Пользователя не существует");
         }
-    
+
         return this.returnUser(user);
-      }
+    }
 
     async patchUserOrdersCount(userId: string, ordersCount: number) {
         const user = await this.userModel.findById<UserDocument>(userId).exec();

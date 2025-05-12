@@ -33,7 +33,7 @@ export class Order {
   title: string;
 
   @ApiProperty({ example: 'Отсосать хую!!!!!!', description: 'Описание заказа' })
-  @Prop({ required: true })
+  @Prop({ required: false })
   description: string;
 
   @ApiProperty({ example: 123, description: 'Цена' })
@@ -80,7 +80,7 @@ export class Order {
   skills: string[];
 
   @ApiProperty({ example: 1, description: 'ID категории' })
-  @Prop({ required: true })
+  @Prop({ required: false })
   category: number;
 
   @ApiProperty({ example: '10', description: 'Количество откликов' })

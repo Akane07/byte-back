@@ -27,6 +27,7 @@ export class OrderService {
         return order;
     }
 
+
     async getUserOrders(userId: string) {
         const orders = await this.orderModel.find({ user_id: userId, draft: { $ne: true } }).exec();
         return orders;
@@ -142,6 +143,9 @@ export class OrderService {
     async deleteOrderResponse(user_id: string, order_id: string, response_id: string) {
         const response = await this.orderResponseModel.findById(response_id);
 
+        console.log(response, 'response', response_id);
+        
+
         if (response.user_id !== user_id) return;
 
         await response.deleteOne();
@@ -154,5 +158,15 @@ export class OrderService {
         order.save();
 
         return true;
+    }
+
+    async editOrderResponse(user_id: string, response_id: string, description: string) {
+        const response = await this.orderResponseModel.findById(response_id);
+        if (response.user_id !== user_id) return;
+
+        response.description = description;
+        await response.save();
+
+        return response;
     }
 }

@@ -76,7 +76,7 @@ export class OrderController {
   @ApiOperation({ summary: 'Создание заказа', description: 'Создание заказа' })
   @ApiBody({ type: CreateOrderDto, description: 'Данные заказа', required: true })
   @ApiResponse({ status: 200, description: 'Заказ', type: Order })
-  createOrder(@Request() req: any, @Body() body: CreateOrderDto) {
+  createOrder(@Request() req: any, @Body() body: CreateOrderDto) {    
     return this.orderService.createOrder(req.user.userId, body);
   }
 
@@ -115,6 +115,15 @@ export class OrderController {
   @ApiQuery({ name: 'rid', type: String, required: true, description: 'ID отклика' })
   deleteOrderResponse(@Request() req: any, @Param() params: { id: string, rid: string }) {
     return this.orderService.deleteOrderResponse(req.user.userId, params.id, params.rid);
+  }
+
+  @Patch(':id/response/:rid')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Изменение отклика', description: 'Изменение своего отклика к заказу' })
+  @ApiQuery({ name: 'id', type: String, required: true, description: 'ID заказа' })
+  @ApiQuery({ name: 'rid', type: String, required: true, description: 'ID отклика' })
+  editOrderResponse(@Request() req: any, @Param() params: { id: string, rid: string }, @Body() body: { description: string }) {
+    return this.orderService.editOrderResponse(req.user.userId, params.rid, body.description);
   }
 
   @Post('responses')

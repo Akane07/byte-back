@@ -37,12 +37,12 @@ export class UserController {
   }
 
   @Get(':id')
-  // @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Получить информацию о пользователе', description: 'Получить информацию о пользователе' })
   @ApiQuery({ name: 'id', type: String, description: 'ID пользователя', required: true })
   @ApiResponse({ status: 200, description: 'Пользователь', type: User })
-  getUser(@Param() params: { id: string }) {
-    return this.userService.getUser(params.id);
+  getUser(@Request() req, @Param() params: { id: string }) {
+    return this.userService.getUser(params.id, req.user.userId);
   }
 
   @Post('change-password')
