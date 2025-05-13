@@ -1,8 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Order, OrderDocument, OrderResponse, OrderResponseDocument } from './schemas/order.schema';
-import { CreateOrderDto } from './dto/create-order.dto';
+import { CreateOrderDto, UpdateOrderDto } from './dto/create-order.dto';
 import { UserService } from '../user/user.service';
 
 @Injectable()
@@ -13,10 +13,35 @@ export class OrderService {
         private readonly userService: UserService,
     ) { }
 
-    async getOrderList(userId: string) {
-        const orders = await this.orderModel.find({ user_id: { $ne: userId } }).exec();
+    async getOrderList(userId: string, page: number, categoryIds?: string[]) {
+        const pageSize = 10;
+        const skip = (page - 1) * pageSize;
 
-        return orders;
+        const filter: any = {};
+        if (categoryIds && categoryIds.length > 0) {
+            filter.category = { $in: categoryIds };
+        }
+
+        // filter.user = { $ne: userId };
+        filter.draft = { $ne: true };
+
+        const [orders, total] = await Promise.all([
+            this.orderModel
+                .find(filter)
+                .sort({ created_at: -1 })
+                .skip(skip)
+                .limit(pageSize)
+                .exec(),
+            this.orderModel.countDocuments(filter),
+        ]);
+
+        const totalPages = Math.ceil(total / pageSize);
+
+        return {
+            orders,
+            totalPages,
+            currentPage: page,
+        };
     }
 
     async getOrder(id: string) {
@@ -27,14 +52,17 @@ export class OrderService {
         return order;
     }
 
-
     async getUserOrders(userId: string) {
         const orders = await this.orderModel.find({ user_id: userId, draft: { $ne: true } }).exec();
         return orders;
     }
 
-    async getUserDrafts(userId: string) {
-        const orders = await this.orderModel.find({ user_id: userId, draft: { $ne: false } }).exec();
+    async getUserDrafts(id: string, userId: string) {
+        if (id !== userId) {
+            throw new NotFoundException('Drafts not found');
+        }
+
+        const orders = await this.orderModel.find({ user_id: id, draft: { $ne: false } }).exec();
         return orders;
     }
 
@@ -45,36 +73,84 @@ export class OrderService {
         return order;
     }
 
-    async updateOrder(id: string, body: CreateOrderDto) {
+    async updateOrder(id: string, body: UpdateOrderDto, userId: string) {
         const order = await this.orderModel.findById(id).exec();
+
         if (!order) {
             throw new NotFoundException('Order not found');
         }
+
+        if (order.user_id !== userId) {
+            throw new NotFoundException('Order not found');
+        }
+
+        const protectedFields = ['user_id', 'created_at', 'response_count', 'viewed_by'];
+        for (const field of protectedFields) {
+            if (field in body) {
+                throw new BadRequestException(`Field '${field}' cannot be updated`);
+            }
+        }
+
         order.set(body);
+
+        if (!body.draft) {
+            order.created_at = new Date();
+            await this.userService.patchUserOrdersCount(order.user_id, (await this.getUserOrders(order.user_id)).length);
+        }
+
         await order.save();
+
         return order;
     }
 
-    async archiveOrder(id: string) {
+    async archiveOrder(id: string, userId: string) {
         const order = await this.orderModel.findById(id).exec();
+
         if (!order) {
             throw new NotFoundException('Order not found');
         }
+
+        if (order.user_id !== userId) {
+            throw new NotFoundException('Order not found');
+        }
+
         order.is_active = false;
         await order.save();
         return order;
     }
 
-    async deleteOrder(id: string) {
-        const order = await this.orderModel.findByIdAndDelete(id).exec();
+    async deleteOrder(id: string, userId: string) {
+        const order = await this.orderModel.findById(id).exec();
+
         if (!order) {
             throw new NotFoundException('Order not found');
         }
+
+        if (order.user_id !== userId) {
+            throw new NotFoundException('Order not found');
+        }
+
+        await order.deleteOne();
         await this.userService.patchUserOrdersCount(order.user_id, (await this.getUserOrders(order.user_id)).length);
         return 'order deleted';
     }
 
     async createOrderResponse(orderId: string, userId: string, body: { description: string }) {
+        const order = await this.orderModel.findById(orderId).exec();
+
+        if (!order) {
+            throw new NotFoundException('Order not found');
+        }
+
+        if (order.user_id === userId) {
+            throw new NotFoundException('Order not found');
+        }
+
+        const existing = await this.orderResponseModel.findOne({ order_id: orderId, user_id: userId });
+        if (existing) {
+            throw new BadRequestException('You already responded to this order');
+        }
+
         const response = {
             order_id: orderId,
             user_id: userId,
@@ -84,14 +160,23 @@ export class OrderService {
         const orderResponse = new this.orderResponseModel(response);
         await orderResponse.save();
 
-        const order = await this.orderModel.findById(orderId).exec();
         order.response_count += 1;
-        order.save();
+        await order.save();
 
         return orderResponse;
     }
 
-    async getOrderResponses(orderId: string) {
+    async getOrderResponses(orderId: string, userId: string) {
+        const order = await this.orderModel.findById(orderId).exec();
+
+        if (!order) {
+            throw new NotFoundException('Order not found');
+        }
+
+        if (order.user_id === userId) {
+            throw new NotFoundException('Order not found');
+        }
+
         const responses = await this.orderResponseModel.find({ order_id: orderId }).exec();
         return responses;
     }
@@ -143,10 +228,13 @@ export class OrderService {
     async deleteOrderResponse(user_id: string, order_id: string, response_id: string) {
         const response = await this.orderResponseModel.findById(response_id);
 
-        console.log(response, 'response', response_id);
-        
+        if (!response) {
+            throw new NotFoundException('Response not found');
+        }
 
-        if (response.user_id !== user_id) return;
+        if (response.user_id !== user_id) {
+            throw new NotFoundException('Response not found');
+        };
 
         await response.deleteOne();
 
@@ -162,7 +250,10 @@ export class OrderService {
 
     async editOrderResponse(user_id: string, response_id: string, description: string) {
         const response = await this.orderResponseModel.findById(response_id);
-        if (response.user_id !== user_id) return;
+
+        if (response.user_id !== user_id) {
+            throw new NotFoundException('Response not found');
+        };
 
         response.description = description;
         await response.save();

@@ -1,5 +1,5 @@
 import { ApiProperty } from "@nestjs/swagger";
-import { File } from "buffer";
+import { IsArray, IsOptional, IsString } from "class-validator";
 
 export class PortfolioDto {
     @ApiProperty({ example: 'Бебебе с бябябя', description: 'Название проекта' })
@@ -23,3 +23,37 @@ export class PortfolioDto {
     @ApiProperty({ example: 'https://example.com/image1.jpg', description: 'Видео' })
     readonly video?: string;
 }
+
+export class UpdatePortfolioDto {
+    @IsOptional()
+    @IsString()
+    readonly title: string;
+
+    @IsOptional()
+    @IsString()
+    readonly description: string;
+
+    @IsOptional()
+    @IsString()
+    readonly role: string;
+
+    @IsOptional()
+    @IsArray()
+    @IsString({ each: true })
+    readonly skills: string[];
+
+    @IsOptional()
+    @IsArray()
+    @IsString({ each: true })
+    readonly images: string[];
+
+    @IsOptional()
+    @IsArray()
+    @IsString({ each: true })
+    readonly photos?: string[];
+
+    @IsOptional()
+    @IsString()
+    readonly video?: string;
+}
+

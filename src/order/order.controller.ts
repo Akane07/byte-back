@@ -1,7 +1,7 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Request, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Request, UseGuards, UsePipes, ValidationPipe } from '@nestjs/common';
 import { OrderService } from './order.service';
 import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
-import { CreateOrderDto, CreateResponseDto } from './dto/create-order.dto';
+import { CreateOrderDto, CreateResponseDto, UpdateOrderDto } from './dto/create-order.dto';
 import { ApiBody, ApiOperation, ApiQuery, ApiResponse } from '@nestjs/swagger';
 import { Order, OrderResponse } from './schemas/order.schema';
 
@@ -13,8 +13,8 @@ export class OrderController {
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Список заказов', description: 'Получение списка заказов' })
   @ApiResponse({ status: 200, description: 'Список заказов', type: [Order] })
-  getOrderList(@Request() req: any) {
-    return this.orderService.getOrderList(req.user.userId);
+  getOrderList(@Request() req: any, @Query('page') page: number = 1, @Query('categories') categories?: string[]) {
+    return this.orderService.getOrderList(req.user.userId, page, categories);
   }
 
   @Get(':id')
@@ -40,18 +40,22 @@ export class OrderController {
   @ApiOperation({ summary: 'Черновики пользователя', description: 'Список черновиков пользователя' })
   @ApiQuery({ name: 'id', type: String, required: true, description: 'ID пользователя' })
   @ApiResponse({ status: 200, description: 'Список черновиков пользователя', type: [Order] })
-  getUserDrafts(@Param() params: { id: string }) {
-    return this.orderService.getUserDrafts(params.id);
+  getUserDrafts(@Request() req: any, @Param() params: { id: string }) {
+    return this.orderService.getUserDrafts(params.id, req.user.userId);
   }
 
   @Patch(':id')
+  @UsePipes(new ValidationPipe({
+    whitelist: true,            // удаляет поля, которых нет в DTO
+    forbidNonWhitelisted: true, // выбрасывает ошибку, если есть лишние поля
+  }))
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Редактирование заказа', description: 'Редактирование заказа' })
   @ApiQuery({ name: 'id', type: String, required: true, description: 'ID заказа' })
   @ApiBody({ type: CreateOrderDto, description: 'Данные заказа', required: false })
   @ApiResponse({ status: 200, description: 'Заказ', type: Order })
-  updateOrder(@Param() params: { id: string }, @Body() body: CreateOrderDto) {
-    return this.orderService.updateOrder(params.id, body);
+  updateOrder(@Request() req: any, @Param() params: { id: string }, @Body() body: UpdateOrderDto) {
+    return this.orderService.updateOrder(params.id, body, req.user.userId);
   }
 
   @Patch(':id/archive')
@@ -59,16 +63,16 @@ export class OrderController {
   @ApiOperation({ summary: 'Архивирование заказа', description: 'Архивирование заказа' })
   @ApiQuery({ name: 'id', type: String, required: true, description: 'ID заказа' })
   @ApiResponse({ status: 200, description: 'Заказ', type: Order })
-  archiveOrder(@Param() params: { id: string }) {
-    return this.orderService.archiveOrder(params.id);
+  archiveOrder(@Request() req: any, @Param() params: { id: string }) {
+    return this.orderService.archiveOrder(params.id, req.user.userId);
   }
 
   @Delete(':id')
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Удаление заказа', description: 'Удаление заказа' })
   @ApiQuery({ name: 'id', type: String, required: true, description: 'ID заказа' })
-  deleteOrder(@Param() params: { id: string }) {
-    return this.orderService.deleteOrder(params.id);
+  deleteOrder(@Request() req: any, @Param() params: { id: string }) {
+    return this.orderService.deleteOrder(params.id, req.user.userId);
   }
 
   @Post('')
@@ -76,7 +80,7 @@ export class OrderController {
   @ApiOperation({ summary: 'Создание заказа', description: 'Создание заказа' })
   @ApiBody({ type: CreateOrderDto, description: 'Данные заказа', required: true })
   @ApiResponse({ status: 200, description: 'Заказ', type: Order })
-  createOrder(@Request() req: any, @Body() body: CreateOrderDto) {    
+  createOrder(@Request() req: any, @Body() body: CreateOrderDto) {
     return this.orderService.createOrder(req.user.userId, body);
   }
 
@@ -95,8 +99,8 @@ export class OrderController {
   @ApiOperation({ summary: 'Получение откликов к заказу', description: 'Получение откликов к заказу по ID' })
   @ApiQuery({ name: 'id', type: String, required: true, description: 'ID заказа' })
   @ApiResponse({ status: 200, description: 'Отклик', type: [OrderResponse] })
-  getOrderResponses(@Param() params: { id: string }) {
-    return this.orderService.getOrderResponses(params.id);
+  getOrderResponses(@Request() req: any, @Param() params: { id: string }) {
+    return this.orderService.getOrderResponses(params.id, req.user.userId);
   }
 
   @Get(':id/response')

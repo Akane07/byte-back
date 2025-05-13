@@ -1,9 +1,9 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Request, UploadedFiles, UseGuards, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Request, UploadedFiles, UseGuards, UseInterceptors, UsePipes, ValidationPipe } from '@nestjs/common';
 import { PortfolioService } from './portfolio.service';
 import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
 import { ApiBody, ApiOperation, ApiQuery, ApiResponse } from '@nestjs/swagger';
 import { Portfolio } from './schemas/portfolio.schema';
-import { PortfolioDto } from './dto/portfolio.dto';
+import { PortfolioDto, UpdatePortfolioDto } from './dto/portfolio.dto';
 import { extname } from 'path';
 import { diskStorage } from 'multer';
 import { FileFieldsInterceptor } from '@nestjs/platform-express';
@@ -98,9 +98,13 @@ export class PortfolioController {
       },
     ),
   )
+  @UsePipes(new ValidationPipe({
+    whitelist: true,            // удаляет поля, которых нет в DTO
+    forbidNonWhitelisted: true, // выбрасывает ошибку, если есть лишние поля
+  }))
   updatePortfolio(@Request() req: any,
     @Param() params: { id: string },
-    @Body() body: PortfolioDto,
+    @Body() body: UpdatePortfolioDto,
     @UploadedFiles()
     files: {
       video?: any[];

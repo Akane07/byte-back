@@ -25,7 +25,7 @@ export class UserController {
   @ApiOperation({ summary: 'Получить информацию о пользователе (себе)', description: 'Получить информацию о пользователе (себе)' })
   @ApiResponse({ status: 200, description: 'Пользователь', type: User })
   getMe(@Request() req: any) {
-    return this.userService.getUser(req.user.userId);
+    return this.userService.getUser(req.user.userId, req.user.userId);
   }
 
   @Post('me')

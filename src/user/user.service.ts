@@ -17,7 +17,7 @@ export class UserService {
         if (!user) {
             throw new NotFoundException("User does not exist");
         }
-
+        
         if (userId === tokenId) {
             user.last_seen = new Date().toISOString();
             await user.save();

@@ -1,8 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { Portfolio, PortfolioDocument } from './schemas/portfolio.schema';
 import { Model } from 'mongoose';
 import { InjectModel } from '@nestjs/mongoose';
-import { PortfolioDto } from './dto/portfolio.dto';
+import { PortfolioDto, UpdatePortfolioDto } from './dto/portfolio.dto';
 
 @Injectable()
 export class PortfolioService {
@@ -30,6 +30,8 @@ export class PortfolioService {
     async getPortfolio(id: string) {
         const portfolio = await this.portfolioModel.findById(id).lean();
 
+        if (!portfolio) throw new NotFoundException('Portfolio not found');
+
         delete portfolio.__v;
 
         const res = {
@@ -51,26 +53,33 @@ export class PortfolioService {
 
     async deletePortfolio(userId: string, id: string) {
         const portfolio = await this.portfolioModel.findById(id);
+
         if (!portfolio) {
-            throw new Error('Portfolio not found');
+            throw new NotFoundException('Portfolio not found');
         }
+
         if (portfolio.user_id !== userId) {
-            throw new Error('Portfolio not found');
+            throw new NotFoundException('Portfolio not found');
         }
+
         await this.portfolioModel.deleteOne({ _id: id });
         return true;
     }
 
-    async updatePortfolio(userId: string, id: string, body: PortfolioDto) {
+    async updatePortfolio(userId: string, id: string, body: UpdatePortfolioDto) {
         const portfolio = await this.portfolioModel.findById(id);
+
         if (!portfolio) {
             throw new Error('Portfolio not found');
         }
+
         if (portfolio.user_id !== userId) {
             throw new Error('Portfolio not found');
         }
+
         portfolio.set(body);
         await portfolio.save();
+
         return portfolio;
     }
 
@@ -98,14 +107,24 @@ export class PortfolioService {
 
         if (isLike) {
             if (!project.liked_by.includes(userId)) {
-                project.liked_by.push(userId);
-                await project.save();
+                // project.liked_by.push(userId);
+                // await project.save();
+
+                await this.portfolioModel.updateOne(
+                    { _id: id },
+                    { $addToSet: { liked_by: userId } }
+                );
             }
         } else {
             if (project.liked_by.includes(userId)) {
                 const index = project.liked_by.indexOf(userId);
-                project.liked_by.splice(index, 1);
-                await project.save();
+                // project.liked_by.splice(index, 1);
+                // await project.save();
+
+                await this.portfolioModel.updateOne(
+                    { _id: id },
+                    { $pull: { liked_by: userId } }
+                );
             }
         }
 

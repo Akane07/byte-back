@@ -1,4 +1,5 @@
 import { ApiProperty } from "@nestjs/swagger";
+import { IsArray, IsBoolean, IsIn, IsNumber, IsOptional, IsString } from "class-validator";
 
 export class CreateOrderDto {
     @ApiProperty({ example: 'Отсосать хуй', description: 'Название заказа' })
@@ -40,4 +41,53 @@ export class CreateOrderDto {
 export class CreateResponseDto {
     @ApiProperty({ example: 'Приложить свою работу привет', description: 'Отклик на заказ' })
     readonly description: string;
+}
+
+export class UpdateOrderDto {
+    @IsOptional()
+    @IsString()
+    title?: string;
+
+    @IsOptional()
+    @IsString()
+    description?: string;
+
+    @IsOptional()
+    price?: number | { from: number; to: number };
+
+    @IsOptional()
+    @IsIn(['contract', 'fixed', 'hourly'])
+    price_type?: 'contract' | 'fixed' | 'hourly';
+
+    @IsOptional()
+    @IsIn(['one-time', 'reusable'])
+    type?: 'one-time' | 'reusable';
+
+    @IsOptional()
+    @IsBoolean()
+    for_experts?: boolean;
+
+    @IsOptional()
+    @IsIn(['less-week', 'more-week', 'less-month', 'more-month', 'contract', 'custom'])
+    deadlines?: string;
+
+    @IsOptional()
+    deadline_date?: Date;
+
+    @IsOptional()
+    @IsArray()
+    @IsString({ each: true })
+    skills?: string[];
+
+    @IsOptional()
+    @IsNumber()
+    category?: number;
+
+    @IsOptional()
+    @IsBoolean()
+    is_active?: boolean;
+
+    @IsOptional()
+    @IsBoolean()
+    draft?: boolean;
 }
