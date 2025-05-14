@@ -7,6 +7,8 @@ import { AuthModule } from '../auth/auth.module';
 import { OrderModule } from 'src/order/order.module';
 import { PortfolioModule } from 'src/portfolio/portfolio.module';
 import { CategoryModule } from 'src/category/category.module';
+import { ChatModule } from 'src/chat/chat.module';
+import { UploadController } from 'src/chat/upload.controller';
 
 @Module({
   imports: [
@@ -16,8 +18,9 @@ import { CategoryModule } from 'src/category/category.module';
     OrderModule,
     PortfolioModule,
     CategoryModule,
+    ChatModule,
   ],
-  controllers: [AppController],
+  controllers: [AppController, UploadController],
   providers: [AppService],
 })
 export class AppModule {}
