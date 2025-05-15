@@ -29,7 +29,7 @@ export class PortfolioController {
   }
 
   @Get('user/:id')
-  @UseGuards(JwtAuthGuard)
+  // @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Список проектов в портфолио по ID пользователя', description: 'Получение списка проектов пользователя по ID' })
   @ApiQuery({ name: 'id', type: String, description: 'ID пользователя', required: true })
   @ApiResponse({ status: 200, description: 'Список проекто в портфолио', type: [Portfolio] })

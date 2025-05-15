@@ -22,7 +22,9 @@ export class OrderService {
             filter.category = { $in: categoryIds };
         }
 
-        // filter.user = { $ne: userId };
+        if (userId) {
+            filter.user = { $ne: userId };
+        }
         filter.draft = { $ne: true };
 
         const [orders, total] = await Promise.all([

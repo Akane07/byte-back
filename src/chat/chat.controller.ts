@@ -11,4 +11,10 @@ export class ChatController {
   getChat(@Query('user') userA: string, @Request() req: any) {
     return this.chatService.getChatBetweenUsers(userA, req.user.userId);
   }
+
+  @Get('all')
+  @UseGuards(JwtAuthGuard)
+  getAllChats(@Request() req: any) {
+    return this.chatService.getUserChats(req.user.userId);
+  }
 }

@@ -10,11 +10,11 @@ export class OrderController {
   constructor(private readonly orderService: OrderService) { }
 
   @Get('')
-  @UseGuards(JwtAuthGuard)
+  // @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Список заказов', description: 'Получение списка заказов' })
   @ApiResponse({ status: 200, description: 'Список заказов', type: [Order] })
   getOrderList(@Request() req: any, @Query('page') page: number = 1, @Query('categories') categories?: string[]) {
-    return this.orderService.getOrderList(req.user.userId, page, categories);
+    return this.orderService.getOrderList(req?.user?.userId, page, categories);
   }
 
   @Get(':id')

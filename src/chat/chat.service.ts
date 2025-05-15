@@ -32,4 +32,8 @@ export class ChatService {
         }).sort({ createdAt: 1 }); // сортировка по времени
     }
 
+    async getUserChats(userId: string) {
+        return this.messageModel.find({ $or: [{ senderId: userId }, { receiverId: userId }] }).sort({ createdAt: 1 }); // сортировка по времени
+    }   
+
 }
