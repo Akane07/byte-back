@@ -22,6 +22,15 @@ export class Message {
 
   @Prop({ default: false })
   isRead: boolean;
+
+  @Prop({ default: false })
+  is_suggest: boolean;
+
+  @Prop({ required: false })
+  orderId: string;
+
+  @Prop({ required: false })
+  status: 'rejected' | 'accepted' | 'server';
 }
 
 export const MessageSchema = SchemaFactory.createForClass(Message);

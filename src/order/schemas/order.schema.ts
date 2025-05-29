@@ -99,6 +99,10 @@ export class Order {
   @Prop({ required: true, default: false })
   draft: boolean;
 
+  @ApiProperty({ example: '1', description: 'ID исполнителя' })
+  @Prop({ required: false })
+  performer: string;
+
   @ApiProperty({ example: '2022-01-01T00:00:00.000Z', description: 'Дата создания' })
   @Prop({ required: true, default: Date.now })
   created_at: Date;

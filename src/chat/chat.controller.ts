@@ -1,10 +1,10 @@
-import { Controller, Get, Query, Request, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Query, Request, UseGuards } from '@nestjs/common';
 import { ChatService } from './chat.service';
 import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
 
 @Controller('chat')
 export class ChatController {
-  constructor(private readonly chatService: ChatService) {}
+  constructor(private readonly chatService: ChatService) { }
 
   @Get()
   @UseGuards(JwtAuthGuard)
@@ -16,5 +16,11 @@ export class ChatController {
   @UseGuards(JwtAuthGuard)
   getAllChats(@Request() req: any) {
     return this.chatService.getUserChats(req.user.userId);
+  }
+
+  @Get('between/:id/and/:uid')
+  @UseGuards(JwtAuthGuard)
+  getOrderBetweenUsers(@Param() params: { id: string, uid: string }) {
+    return this.chatService.getOrderBetweenUsers(params.id, params.uid);
   }
 }

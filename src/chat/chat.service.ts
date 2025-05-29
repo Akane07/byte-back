@@ -2,11 +2,13 @@ import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Message, MessageDocument } from './schemas/chat.schema';
 import { Model } from 'mongoose';
+import { Order, OrderDocument } from 'src/order/schemas/order.schema';
 
 @Injectable()
 export class ChatService {
     constructor(
         @InjectModel(Message.name) private messageModel: Model<MessageDocument>,
+        @InjectModel(Order.name) private orderModel: Model<OrderDocument>,
     ) { }
 
     async saveMessage(data: any): Promise<Message> {
@@ -117,5 +119,24 @@ export class ChatService {
         return chats;
     }
 
+    async deleteMessage(id: string) {
+        return this.messageModel.findByIdAndDelete(id).exec();
+    }
 
+    async acceptMessage(id: string, orderId: string, userId: string) {
+        const order = await this.orderModel.findById(orderId).exec();
+        order.performer = userId;
+        await order.save();
+        return this.messageModel.findByIdAndUpdate(id, { status: 'accepted' }).exec();
+    }
+
+    async rejectMessage(id: string) {
+        return this.messageModel.findByIdAndUpdate(id, { status: 'rejected' }).exec();
+    }
+
+    async getOrderBetweenUsers(userId: string, otherId: string) {
+        const orders = await this.orderModel.find({ performer: { $in: [userId, otherId] }, user_id: { $in: [userId, otherId] } }).exec();
+        
+        return orders;
+    }
 }
