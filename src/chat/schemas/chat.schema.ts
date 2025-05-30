@@ -5,6 +5,8 @@ export type MessageDocument = Message & Document;
 
 @Schema({ timestamps: true })
 export class Message {
+  id: string;
+  
   @Prop({ required: true })
   senderId: string;
 
@@ -30,7 +32,41 @@ export class Message {
   orderId: string;
 
   @Prop({ required: false })
-  status: 'rejected' | 'accepted' | 'server';
+  responseId: string;
+
+  @Prop({ required: false })
+  status: 'rejected' | 'accepted' | 'server' | 'response';
 }
 
 export const MessageSchema = SchemaFactory.createForClass(Message);
+
+MessageSchema.set('toJSON', {
+  virtuals: true,
+  versionKey: false,
+  transform: (_, ret) => {
+    ret.id = ret._id; // Создаём поле `id`
+    delete ret._id;   // Удаляем `_id`
+  }
+});
+
+MessageSchema.set('toObject', {
+  virtuals: true,
+  versionKey: false,
+  transform: (_, ret) => {
+    ret.id = ret._id;
+    delete ret._id;
+  }
+});
+
+export interface MessageDto {
+  senderId: string;
+  receiverId: string;
+  text: string;
+  mediaUrl: string;
+  mediaType: 'image' | 'video' | 'none';
+  createdAt: string;
+  is_suggest: boolean;
+  status?: 'rejected' | 'accepted' | 'server' | 'response';
+  orderId?: string;
+  responseId?: string; 
+}

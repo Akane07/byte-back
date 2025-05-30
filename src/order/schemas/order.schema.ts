@@ -147,6 +147,9 @@ export class OrderResponse {
   @Prop({ required: true })
   description: string;
 
+  @Prop({ required: false })
+  messageId?: string;
+
   @ApiProperty({ example: '2022-01-01T00:00:00.000Z', description: 'Дата создания' })
   @Prop({ required: true, default: Date.now })
   created_at: Date;

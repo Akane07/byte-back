@@ -10,7 +10,7 @@ export class OrderController {
   constructor(private readonly orderService: OrderService) { }
 
   @Get('')
-  // @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Список заказов', description: 'Получение списка заказов' })
   @ApiResponse({ status: 200, description: 'Список заказов', type: [Order] })
   getOrderList(@Request() req: any, @Query('page') page: number = 1, @Query('categories') categories?: string[]) {
@@ -110,6 +110,16 @@ export class OrderController {
   @ApiResponse({ status: 200, description: 'Отклик', type: OrderResponse })
   getOrderResponse(@Request() req: any, @Param() params: { id: string }) {
     return this.orderService.getOrderResponse(req.user.userId, params.id);
+  }
+
+  @Get(':id/response/:rid')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Получение отклика', description: 'Получение отклика к заказу' })
+  @ApiQuery({ name: 'id', type: String, required: true, description: 'ID заказа' })
+    @ApiQuery({ name: 'rid', type: String, required: true, description: 'ID отклика' })
+  @ApiResponse({ status: 200, description: 'Отклик', type: OrderResponse })
+  getOrderResponseById(@Request() req: any, @Param() params: { id: string, rid: string }) {
+    return this.orderService.getOrderResponseById(params.rid);
   }
 
   @Delete(':id/response/:rid')

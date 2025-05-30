@@ -20,13 +20,13 @@ export class OrderService {
         const filter: any = {};
         if (categoryIds && categoryIds.length > 0) {
             filter.category = { $in: categoryIds };
-        }
+        }       
 
         if (userId) {
-            filter.user = { $ne: userId };
+            filter.user_id = { $ne: userId };
         }
         filter.draft = { $ne: true };
-        // filter.performer = { $exists: false };
+        filter.performer = { $exists: false };       
 
         const [orders, total] = await Promise.all([
             this.orderModel
@@ -189,6 +189,11 @@ export class OrderService {
         return response;
     }
 
+    async getOrderResponseById(responseId: string) {
+        const response = await this.orderResponseModel.findById(responseId).exec();
+        return response;
+    }
+
     async getUserResponses(userId: string) {
         const responses = await this.orderResponseModel.find({ user_id: userId }).lean();
 
@@ -228,8 +233,8 @@ export class OrderService {
         return order;
     }
 
-    async deleteOrderResponse(user_id: string, order_id: string, response_id: string) {
-        const response = await this.orderResponseModel.findById(response_id);
+    async deleteOrderResponse(user_id: string, order_id: string, response_id: string) {        
+        const response = await this.orderResponseModel.findById(response_id).exec();        
 
         if (!response) {
             throw new NotFoundException('Response not found');

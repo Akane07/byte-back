@@ -1,31 +1,25 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Message, MessageDocument } from './schemas/chat.schema';
+import { Message, MessageDocument, MessageDto } from './schemas/chat.schema';
 import { Model } from 'mongoose';
-import { Order, OrderDocument } from 'src/order/schemas/order.schema';
+import { Order, OrderDocument, OrderResponse, OrderResponseDocument } from 'src/order/schemas/order.schema';
 
 @Injectable()
 export class ChatService {
     constructor(
         @InjectModel(Message.name) private messageModel: Model<MessageDocument>,
         @InjectModel(Order.name) private orderModel: Model<OrderDocument>,
+        @InjectModel(OrderResponse.name) private orderResponseModel: Model<OrderResponseDocument>,
     ) { }
 
-    async saveMessage(data: any): Promise<Message> {
+    async saveMessage(data: MessageDto): Promise<Message> {
         const message = new this.messageModel(data);
         return message.save();
     }
 
-    async getMessages(user1: string, user2: string) {
-        return this.messageModel.find({
-            $or: [
-                { senderId: user1, receiverId: user2 },
-                { senderId: user2, receiverId: user1 },
-            ],
-        }).sort({ createdAt: 1 });
-    }
-
     async getChatBetweenUsers(userA: string, userB: string) {
+        if (!userA || !userB) return [];
+
         return this.messageModel.find({
             $or: [
                 { senderId: userA, receiverId: userB },
@@ -35,6 +29,8 @@ export class ChatService {
     }
 
     async getUserChats(userId: string) {
+        if (!userId) return [];
+
         const chats = await this.messageModel.aggregate([
             {
                 $match: {
@@ -120,23 +116,48 @@ export class ChatService {
     }
 
     async deleteMessage(id: string) {
+        console.log(id);
+        
+        if (!id) return;
+
+        const res = await this.messageModel.findByIdAndDelete(id).exec();
+
+        console.log(res);
+        
+
         return this.messageModel.findByIdAndDelete(id).exec();
     }
 
     async acceptMessage(id: string, orderId: string, userId: string) {
+        if (!id || !orderId || !userId) return;
+
         const order = await this.orderModel.findById(orderId).exec();
+
+        if (!order) return;
+
         order.performer = userId;
         await order.save();
         return this.messageModel.findByIdAndUpdate(id, { status: 'accepted' }).exec();
     }
 
     async rejectMessage(id: string) {
+        if (!id) return;
+
         return this.messageModel.findByIdAndUpdate(id, { status: 'rejected' }).exec();
     }
 
     async getOrderBetweenUsers(userId: string, otherId: string) {
+        if (userId === otherId) return [];
+        if (!userId || !otherId) return [];
+
         const orders = await this.orderModel.find({ performer: { $in: [userId, otherId] }, user_id: { $in: [userId, otherId] } }).exec();
         
         return orders;
+    }
+
+    async patchResponse(responseId: string, messageId: string) {
+        if (!responseId || !messageId) return;
+
+        return this.orderResponseModel.findByIdAndUpdate(responseId, { messageId }).exec();
     }
 }
