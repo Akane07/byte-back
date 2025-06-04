@@ -48,9 +48,6 @@ export class ChatGateway implements OnGatewayInit {
   ) {
     const { messageId, senderId, receiverId } = data;
 
-    console.log(data);
-    
-
     if (!messageId || !senderId || !receiverId) return;
 
     await this.chatService.deleteMessage(messageId);
@@ -61,11 +58,11 @@ export class ChatGateway implements OnGatewayInit {
 
   @SubscribeMessage('acceptMessage')
   async handleAcceptMessage(@MessageBody() data: any) {
-    const { messageId, senderId, receiverId, name, orderId } = data;
+    const { messageId, senderId, receiverId, name, orderId, type } = data;
 
     if (!messageId || !senderId || !receiverId || !orderId) return;
 
-    await this.chatService.acceptMessage(messageId, orderId, receiverId);
+    await this.chatService.acceptMessage(messageId, orderId, type === 'seller' ? senderId : receiverId);
 
     this.server.to(senderId).emit('messageAccepted', { messageId, success: true });
     this.server.to(receiverId).emit('messageAccepted', { messageId, success: true });
@@ -96,5 +93,16 @@ export class ChatGateway implements OnGatewayInit {
     const res = await this.handleMessage({ senderId, receiverId, text: `Отклик на заказ`, status: 'response', is_suggest: false, mediaType: 'none', mediaUrl: '', createdAt: '', orderId, responseId });
 
     this.chatService.patchResponse(responseId, res.id);
+  }
+
+  @SubscribeMessage('finishOrder')
+  async handleFinishOrder(@MessageBody() data: any) {
+    const { senderId, receiverId, orderId } = data;
+
+    if (!senderId || !receiverId || !orderId) return;
+
+    await this.chatService.finishOrderMessage(orderId);
+
+    this.handleMessage({ senderId, receiverId, text: `Заказ выполнен и готов к проверке.`, status: 'server', is_suggest: false, mediaType: 'none', mediaUrl: '', createdAt: '' });
   }
 }

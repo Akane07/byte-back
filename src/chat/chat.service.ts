@@ -136,8 +136,22 @@ export class ChatService {
         if (!order) return;
 
         order.performer = userId;
+        order.status = 'pending';
+
         await order.save();
         return this.messageModel.findByIdAndUpdate(id, { status: 'accepted' }).exec();
+    }
+
+    async finishOrderMessage(orderId: string) {
+        if (!orderId) return;
+
+        const order = await this.orderModel.findById(orderId).exec();
+
+        if (!order) return;
+
+        order.status = 'completed';
+
+        await order.save();
     }
 
     async rejectMessage(id: string) {
@@ -150,7 +164,7 @@ export class ChatService {
         if (userId === otherId) return [];
         if (!userId || !otherId) return [];
 
-        const orders = await this.orderModel.find({ performer: { $in: [userId, otherId] }, user_id: { $in: [userId, otherId] } }).exec();
+        const orders = await this.orderModel.find({ performer: { $in: [userId, otherId] }, user_id: { $in: [userId, otherId] }, draft: { $ne: true } }).exec();
         
         return orders;
     }

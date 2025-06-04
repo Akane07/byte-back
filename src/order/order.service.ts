@@ -26,7 +26,8 @@ export class OrderService {
             filter.user_id = { $ne: userId };
         }
         filter.draft = { $ne: true };
-        filter.performer = { $exists: false };       
+        filter.performer = { $exists: false };   
+        filter.status = { $ne: 'completed' };
 
         const [orders, total] = await Promise.all([
             this.orderModel
