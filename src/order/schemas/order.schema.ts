@@ -1,181 +1,190 @@
-import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
+import { Prop, raw, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { ApiProperty } from '@nestjs/swagger';
-import { Document } from 'mongoose';
+import { HydratedDocument, Schema as MongooseSchema } from 'mongoose';
 
-class DateType {
-  @Prop({ required: true })
-  from: string;
+export const PRICE_TYPES = ['contract', 'fixed', 'hourly'] as const;
+export const ORDER_TYPES = ['one-time', 'reusable'] as const;
+export const DEADLINES = [
+  'less-week',
+  'more-week',
+  'less-month',
+  'more-month',
+  'contract',
+  'custom',
+] as const;
+export const ORDER_STATUSES = [
+  'active',
+  'pending',
+  'completed',
+  'cancelled',
+] as const;
 
-  @Prop({ required: true })
-  to: string;
-}
+export type PriceType = (typeof PRICE_TYPES)[number];
+export type OrderType = (typeof ORDER_TYPES)[number];
+export type Deadline = (typeof DEADLINES)[number];
+export type OrderStatus = (typeof ORDER_STATUSES)[number];
+export type PriceRange = { from: number; to: number };
+export type DateRange = { from: string; to: string };
 
-class PriceType {
-  @Prop({ required: true })
-  from: number;
+/** Переводит _id в id и убирает служебный __v во всех ответах API. */
+const idTransform = {
+  virtuals: true,
+  versionKey: false,
+  transform: (_: unknown, ret: Record<string, unknown>) => {
+    ret.id = String(ret._id);
+    delete ret._id;
+    return ret;
+  },
+};
 
-  @Prop({ required: true })
-  to: number;
-}
+export type OrderDocument = HydratedDocument<Order>;
 
-// Order
-export type OrderDocument = Order & Document;
-
-@Schema()
+@Schema({ toJSON: idTransform, toObject: idTransform })
 export class Order {
-
-  @ApiProperty({ example: '1', description: 'ID пользователя' })
-  @Prop({ required: true })
+  @ApiProperty({ example: '665f1c...', description: 'ID заказчика' })
+  @Prop({ required: true, index: true })
   user_id: string;
 
-  @ApiProperty({ example: 'Отсосать хуй', description: 'Название заказа' })
+  @ApiProperty({ example: 'Лендинг для кофейни', description: 'Название' })
   @Prop({ required: true })
   title: string;
 
-  @ApiProperty({ example: 'Отсосать хую!!!!!!', description: 'Описание заказа' })
-  @Prop({ required: false })
+  @ApiProperty({
+    example: 'Нужен одностраничный сайт с меню и формой заказа',
+    description: 'Описание',
+  })
+  @Prop({ default: '' })
   description: string;
 
-  @ApiProperty({ example: 123, description: 'Цена' })
+  @ApiProperty({
+    example: 15000,
+    description: 'Цена: число или диапазон { from, to }',
+  })
   @Prop({
+    type: MongooseSchema.Types.Mixed,
     required: true,
     default: 0,
     validate: {
-      validator: function (value) {
-        return (
-          typeof value === 'number' ||
-          (value &&
-            typeof value === 'object' &&
-            typeof value.from === 'number' &&
-            typeof value.to === 'number')
-        );
-      },
-      message: 'price must be a number or an object with from/to numbers',
+      validator: (value: unknown) =>
+        typeof value === 'number' ||
+        (typeof value === 'object' &&
+          value !== null &&
+          typeof (value as PriceRange).from === 'number' &&
+          typeof (value as PriceRange).to === 'number'),
+      message: 'price должен быть числом или объектом { from, to }',
     },
-    type: Object,
   })
-  price: number | PriceType;
+  price: number | PriceRange;
 
-  @ApiProperty({ example: 'fixed', description: 'Тип цены', enum: ['contract', 'fixed'] })
-  @Prop({ required: true })
-  price_type: 'contract' | 'fixed' | 'hourly';
+  @ApiProperty({ example: 'fixed', enum: PRICE_TYPES, description: 'Тип цены' })
+  @Prop({ required: true, enum: PRICE_TYPES })
+  price_type: PriceType;
 
-  @ApiProperty({ example: 'one-time', description: 'Тип заказа', enum: ['one-time', 'reusable'] })
-  @Prop({ required: true })
-  type: 'one-time' | 'reusable';
+  @ApiProperty({
+    example: 'one-time',
+    enum: ORDER_TYPES,
+    description: 'Тип заказа',
+  })
+  @Prop({ required: true, enum: ORDER_TYPES })
+  type: OrderType;
 
   @ApiProperty({ example: true, description: 'Для экспертов' })
-  @Prop({ required: true })
+  @Prop({ default: false })
   for_experts: boolean;
 
-  @ApiProperty({ example: 'contract', description: 'Дедлайны. enum, или строка ISO даты', enum: ['contract', 'more-than-month', 'less-than-month'] })
-  @Prop({ required: true })
-  deadlines: 'less-week' | 'more-week' | 'less-month' | 'more-month' | 'contract' | 'custom';
+  @ApiProperty({ example: 'contract', enum: DEADLINES, description: 'Сроки' })
+  @Prop({ required: true, enum: DEADLINES })
+  deadlines: Deadline;
 
-  @Prop({ required: false })
-  deadline_date?: DateType;
+  @ApiProperty({ required: false, description: 'Даты при deadlines = custom' })
+  @Prop(raw({ from: String, to: String }))
+  deadline_date?: DateRange;
 
-  @ApiProperty({ example: ['Vue', 'React', 'Angular'], description: 'Массив навыков' })
-  @Prop({ required: true })
+  @ApiProperty({ example: ['Vue', 'Figma'], description: 'Навыки' })
+  @Prop({ type: [String], default: [] })
   skills: string[];
 
   @ApiProperty({ example: 1, description: 'ID категории' })
-  @Prop({ required: false })
-  category: number;
+  @Prop()
+  category?: number;
 
-  @ApiProperty({ example: '10', description: 'Количество откликов' })
-  @Prop({ required: true, default: 0 })
+  @ApiProperty({ example: 10, description: 'Количество откликов' })
+  @Prop({ default: 0, min: 0 })
   response_count: number;
 
-  @ApiProperty({ example: ['1', '2'], description: 'Массив просмотренных ID пользователей' })
+  @ApiProperty({ example: ['665f1c...'], description: 'Кто просмотрел' })
   @Prop({ type: [String], default: [] })
   viewed_by: string[];
 
-  @ApiProperty({ example: true, description: 'Активен ли заказ' })
-  @Prop({ required: true, default: true })
+  @ApiProperty({ example: true, description: 'Опубликован (false — в архиве)' })
+  @Prop({ default: true })
   is_active: boolean;
 
-  @ApiProperty({ example: true, description: 'Черновик ли это' })
-  @Prop({ required: true, default: false })
+  @ApiProperty({ example: false, description: 'Черновик' })
+  @Prop({ default: false })
   draft: boolean;
 
-  @ApiProperty({ example: '1', description: 'ID исполнителя' })
-  @Prop({ required: false })
-  performer: string;
+  @ApiProperty({ example: '665f1c...', description: 'ID исполнителя' })
+  @Prop()
+  performer?: string;
 
-  status?: 'pending' | 'active' | 'completed' | 'cancelled';
+  @ApiProperty({
+    example: 'active',
+    enum: ORDER_STATUSES,
+    description: 'Статус сделки',
+  })
+  @Prop({ enum: ORDER_STATUSES, default: 'active' })
+  status: OrderStatus;
 
-  @ApiProperty({ example: '2022-01-01T00:00:00.000Z', description: 'Дата создания' })
-  @Prop({ required: true, default: Date.now })
+  @ApiProperty({
+    example: '2025-01-01T00:00:00.000Z',
+    description: 'Дата публикации',
+  })
+  @Prop({ default: Date.now })
   created_at: Date;
 }
 
 export const OrderSchema = SchemaFactory.createForClass(Order);
 
-OrderSchema.set('toJSON', {
-  virtuals: true,
-  versionKey: false,
-  transform: (_, ret) => {
-    ret.id = ret._id; // Создаём поле `id`
-    delete ret._id;   // Удаляем `_id`
-  }
-});
+export type OrderResponseDocument = HydratedDocument<OrderResponse>;
 
-OrderSchema.set('toObject', {
-  virtuals: true,
-  versionKey: false,
-  transform: (_, ret) => {
-    ret.id = ret._id;
-    delete ret._id;
-  }
-});
-
-
-// OrderResponse
-export type OrderResponseDocument = OrderResponse & Document;
-
-@Schema()
+@Schema({ toJSON: idTransform, toObject: idTransform })
 export class OrderResponse {
-
-  @ApiProperty({ example: '1', description: 'ID заказа' })
-  @Prop({ required: true })
+  @ApiProperty({ example: '665f1c...', description: 'ID заказа' })
+  @Prop({ required: true, index: true })
   order_id: string;
 
-  @ApiProperty({ example: '1', description: 'ID пользователя' })
-  @Prop({ required: true })
+  @ApiProperty({
+    example: '665f1c...',
+    description: 'ID исполнителя, оставившего отклик',
+  })
+  @Prop({ required: true, index: true })
   user_id: string;
 
-  @ApiProperty({ example: 'Отсосать хую!!!!!!', description: 'Описание отклика' })
+  @ApiProperty({
+    example: 'Сделаю за неделю, примеры работ в портфолио',
+    description: 'Текст отклика',
+  })
   @Prop({ required: true })
   description: string;
 
-  @Prop({ required: false })
+  @ApiProperty({
+    required: false,
+    description: 'ID сообщения с откликом в чате',
+  })
+  @Prop()
   messageId?: string;
 
-  @ApiProperty({ example: '2022-01-01T00:00:00.000Z', description: 'Дата создания' })
-  @Prop({ required: true, default: Date.now })
+  @ApiProperty({
+    example: '2025-01-01T00:00:00.000Z',
+    description: 'Дата отклика',
+  })
+  @Prop({ default: Date.now })
   created_at: Date;
 
-  @Prop({ required: true, default: false })
+  @ApiProperty({ example: false, description: 'Просмотрен заказчиком' })
+  @Prop({ default: false })
   viewed: boolean;
 }
 
 export const OrderResponseSchema = SchemaFactory.createForClass(OrderResponse);
-
-OrderResponseSchema.set('toJSON', {
-  virtuals: true,
-  versionKey: false,
-  transform: (_, ret) => {
-    ret.id = ret._id; // Создаём поле `id`
-    delete ret._id;   // Удаляем `_id`
-  }
-});
-
-OrderResponseSchema.set('toObject', {
-  virtuals: true,
-  versionKey: false,
-  transform: (_, ret) => {
-    ret.id = ret._id;
-    delete ret._id;
-  }
-});

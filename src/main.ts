@@ -1,32 +1,49 @@
+import { ValidationPipe } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
-import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
-import { AppModule } from './app/app.module';
-import { join } from 'path';
 import { NestExpressApplication } from '@nestjs/platform-express';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { AppModule } from './app/app.module';
+import { CorsIoAdapter } from './common/socket-io.adapter';
+import { UPLOADS_ROOT, ensureUploadDirs } from './common/uploads';
 
 async function bootstrap() {
+  ensureUploadDirs();
+
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  const config = app.get(ConfigService);
 
-  const config = new DocumentBuilder()
-    .setTitle('example')
-    .setDescription('API description')
-    .setVersion('1.0')
-    .build();
-
-  const documentFactory = () => SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('api', app, documentFactory);
+  const origins = config
+    .get<string>('CORS_ORIGIN', 'http://localhost:3000')
+    .split(',')
+    .map((origin) => origin.trim());
 
   app.setGlobalPrefix('api/v1');
   app.enableCors({
-    origin: '*', // Разрешить все источники (потом надо поставить только наш домен)
+    origin: origins,
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
-    allowedHeaders: '*',
   });
+  // WebSocket-шлюз чата работает на том же порту, что и API.
+  app.useWebSocketAdapter(new CorsIoAdapter(app, origins));
 
-  app.useStaticAssets(join(__dirname, '..', 'uploads'), {
-    prefix: '/uploads', // Префикс для доступа к файлам
-  });
+  // whitelist: лишние поля из тела запроса отбрасываются, а не проходят в базу.
+  // transform: строки из query/multipart приводятся к типам из DTO.
+  app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
 
-  await app.listen(3001);
+  app.useStaticAssets(UPLOADS_ROOT, { prefix: '/uploads' });
+
+  if (config.get<string>('NODE_ENV') !== 'production') {
+    const swaggerConfig = new DocumentBuilder()
+      .setTitle('Freelance Byte API')
+      .setDescription('REST API биржи фриланса Freelance Byte')
+      .setVersion('1.0')
+      .addBearerAuth()
+      .build();
+    SwaggerModule.setup('api', app, () =>
+      SwaggerModule.createDocument(app, swaggerConfig),
+    );
+  }
+
+  await app.listen(config.get<number>('PORT', 3001));
 }
 bootstrap();

@@ -1,143 +1,158 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Request, UploadedFiles, UseGuards, UseInterceptors, UsePipes, ValidationPipe } from '@nestjs/common';
-import { PortfolioService } from './portfolio.service';
-import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
-import { ApiBody, ApiOperation, ApiQuery, ApiResponse } from '@nestjs/swagger';
-import { Portfolio } from './schemas/portfolio.schema';
-import { PortfolioDto, UpdatePortfolioDto } from './dto/portfolio.dto';
-import { extname } from 'path';
-import { diskStorage } from 'multer';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  ParseBoolPipe,
+  Patch,
+  Post,
+  UploadedFiles,
+  UseGuards,
+  UseInterceptors,
+} from '@nestjs/common';
 import { FileFieldsInterceptor } from '@nestjs/platform-express';
+import {
+  ApiBearerAuth,
+  ApiConsumes,
+  ApiOperation,
+  ApiResponse,
+} from '@nestjs/swagger';
+import { UserId } from '../auth/current-user.decorator';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { ParseObjectIdPipe } from '../common/parse-object-id.pipe';
+import { mediaUpload, uploadUrl } from '../common/uploads';
+import { PortfolioDto, UpdatePortfolioDto } from './dto/portfolio.dto';
+import { MAX_PORTFOLIO_IMAGES, PortfolioService } from './portfolio.service';
+import { Portfolio } from './schemas/portfolio.schema';
+
+type PortfolioFiles = {
+  video?: Express.Multer.File[];
+  images?: Express.Multer.File[];
+};
+
+const portfolioFiles = FileFieldsInterceptor(
+  [
+    { name: 'video', maxCount: 1 },
+    { name: 'images', maxCount: MAX_PORTFOLIO_IMAGES },
+  ],
+  mediaUpload,
+);
+
+function toMedia(files: PortfolioFiles = {}) {
+  const video = files.video?.[0];
+  return {
+    images: (files.images ?? []).map((file) =>
+      uploadUrl('files', file.filename),
+    ),
+    video: video && uploadUrl('files', video.filename),
+  };
+}
 
 @Controller('portfolio')
 export class PortfolioController {
-  constructor(private readonly portfolioService: PortfolioService) { }
+  constructor(private readonly portfolioService: PortfolioService) {}
 
-  @Get('')
+  @Get()
   @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: 'Список проектов в портфолио', description: 'Получение списка проектов пользователя' })
-  @ApiResponse({ status: 200, description: 'Список проекто в портфолио', type: [Portfolio] })
-  getPortfolioList(@Request() req: any) {
-    return this.portfolioService.getPortfolioList(req.user.userId);
-  }
-
-  @Get(':id')
-  @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: 'Список проектов в портфолио', description: 'Получение списка проектов пользователя' })
-  @ApiResponse({ status: 200, description: 'Список проекто в портфолио', type: [Portfolio] })
-  getPortfolio(@Param() params: { id: string }) {
-    return this.portfolioService.getPortfolio(params.id);
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Свои проекты' })
+  @ApiResponse({ status: 200, type: [Portfolio] })
+  getMyPortfolio(@UserId() userId: string) {
+    return this.portfolioService.getPortfolioList(userId);
   }
 
   @Get('user/:id')
-  // @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: 'Список проектов в портфолио по ID пользователя', description: 'Получение списка проектов пользователя по ID' })
-  @ApiQuery({ name: 'id', type: String, description: 'ID пользователя', required: true })
-  @ApiResponse({ status: 200, description: 'Список проекто в портфолио', type: [Portfolio] })
-  getPortfolioListByUser(@Param() params: { id: string }) {
-    return this.portfolioService.getPortfolioList(params.id);
+  @ApiOperation({ summary: 'Проекты пользователя' })
+  @ApiResponse({ status: 200, type: [Portfolio] })
+  getPortfolioListByUser(@Param('id', ParseObjectIdPipe) id: string) {
+    return this.portfolioService.getPortfolioList(id);
   }
 
-  @Post('')
+  @Get(':id')
+  @ApiOperation({ summary: 'Проект по id' })
+  @ApiResponse({ status: 200, type: Portfolio })
+  getPortfolio(@Param('id', ParseObjectIdPipe) id: string) {
+    return this.portfolioService.getPortfolio(id);
+  }
+
+  @Post()
   @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: 'Добавление проекта в портфолио', description: 'Добавление проекта в портфолио' })
-  @ApiBody({ type: PortfolioDto, description: 'Данные проекта', required: true })
-  @ApiResponse({ status: 200, description: 'Проект добавлен в портфолио', type: Portfolio })
-  @UseInterceptors(
-    FileFieldsInterceptor(
-      [
-        { name: 'video', maxCount: 1 },
-        { name: 'images', maxCount: 5 },
-      ],
-      {
-        storage: diskStorage({
-          destination: './uploads/files/',
-          filename: (req, file, cb) => {
-            const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
-            cb(null, uniqueSuffix + extname(file.originalname));
-          },
-        }),
-      },
-    ),
-  )
+  @ApiBearerAuth()
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({
+    summary: 'Добавить проект',
+    description: `multipart: images (до ${MAX_PORTFOLIO_IMAGES}), video (1), title, description, role, skills`,
+  })
+  @ApiResponse({ status: 201, type: Portfolio })
+  @UseInterceptors(portfolioFiles)
   createPortfolio(
-    @Request() req: any,
-    @UploadedFiles()
-    files: {
-      video?: any[];
-      images?: any[];
-    },
-    @Body() body: PortfolioDto,
+    @UserId() userId: string,
+    @Body() dto: PortfolioDto,
+    @UploadedFiles() files: PortfolioFiles,
   ) {
-    return this.portfolioService.createPortfolio(req.user.userId, {
-      ...body,
-      video: files.video ? `/uploads/files/${files.video?.[0]?.filename}` : '',
-      images: files.images?.map((file) => `/uploads/files/${file.filename}`),
-    });
+    return this.portfolioService.createPortfolio(userId, dto, toMedia(files));
   }
 
   @Patch(':id')
   @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: 'Обновление проекта в портфолио', description: 'Обновление проекта в портфолио' })
-  @ApiQuery({ name: 'id', type: String, description: 'ID проекта', required: true })
-  @ApiBody({ type: PortfolioDto, description: 'Данные проекта', required: true })
-  @ApiResponse({ status: 200, description: 'Проект обновлен в портфолио', type: Portfolio })
-  @UseInterceptors(
-    FileFieldsInterceptor(
-      [
-        { name: 'video', maxCount: 1 },
-        { name: 'images', maxCount: 5 },
-      ],
-      {
-        storage: diskStorage({
-          destination: './uploads/files/',
-          filename: (req, file, cb) => {
-            const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
-            cb(null, uniqueSuffix + extname(file.originalname));
-          },
-        }),
-      },
-    ),
-  )
-  @UsePipes(new ValidationPipe({
-    whitelist: true,            // удаляет поля, которых нет в DTO
-    forbidNonWhitelisted: true, // выбрасывает ошибку, если есть лишние поля
-  }))
-  updatePortfolio(@Request() req: any,
-    @Param() params: { id: string },
-    @Body() body: UpdatePortfolioDto,
-    @UploadedFiles()
-    files: {
-      video?: any[];
-      images?: any[];
-    },
+  @ApiBearerAuth()
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({
+    summary: 'Изменить свой проект',
+    description: 'photos[] — оставляемые картинки; images — новые файлы',
+  })
+  @ApiResponse({ status: 200, type: Portfolio })
+  @UseInterceptors(portfolioFiles)
+  updatePortfolio(
+    @UserId() userId: string,
+    @Param('id', ParseObjectIdPipe) id: string,
+    @Body() dto: UpdatePortfolioDto,
+    @UploadedFiles() files: PortfolioFiles,
   ) {
-    return this.portfolioService.updatePortfolio(req.user.userId, params.id, {
-      ...body,
-      video: files.video ? `/uploads/files/${files.video?.[0]?.filename}` : body.video,
-      images: [...body.photos, ...[...files.images ? files.images?.map((file) => `/uploads/files/${file.filename}`) : []]],
-    });
+    return this.portfolioService.updatePortfolio(
+      userId,
+      id,
+      dto,
+      toMedia(files),
+    );
   }
 
   @Delete(':id')
   @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: 'Удаление проекта из портфолио', description: 'Удаление проекта из портфолио' })
-  @ApiQuery({ name: 'id', type: String, description: 'ID проекта', required: true })
-  @ApiResponse({ status: 200, description: 'Проект удален из портфолио', type: Boolean })
-  deletePortfolio(@Request() req: any, @Param() params: { id: string }) {
-    return this.portfolioService.deletePortfolio(req.user.userId, params.id);
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Удалить свой проект' })
+  deletePortfolio(
+    @UserId() userId: string,
+    @Param('id', ParseObjectIdPipe) id: string,
+  ) {
+    return this.portfolioService.deletePortfolio(userId, id);
   }
 
   @Post(':id/viewed')
   @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: 'Просмотр портфолио', description: 'Просмотр портфолио от пользователя' })
-  viewPortfolio(@Request() req: any, @Param() params: { id: string }) {
-    return this.portfolioService.viewPortfolio(req.user.userId, params.id);
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Отметить проект просмотренным' })
+  viewPortfolio(
+    @UserId() userId: string,
+    @Param('id', ParseObjectIdPipe) id: string,
+  ) {
+    return this.portfolioService.viewPortfolio(userId, id);
   }
 
   @Post(':id/like')
   @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: 'Просмотр портфолио', description: 'Просмотр портфолио от пользователя' })
-  likePortfolio(@Request() req: any, @Param() params: { id: string }, @Body() data: { liked: boolean }) {
-    return this.portfolioService.likePortfolio(req.user.userId, params.id, data.liked);
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Поставить или снять лайк',
+    description: 'Тело: { liked: boolean }',
+  })
+  @ApiResponse({ status: 200, type: Portfolio })
+  likePortfolio(
+    @UserId() userId: string,
+    @Param('id', ParseObjectIdPipe) id: string,
+    @Body('liked', ParseBoolPipe) liked: boolean,
+  ) {
+    return this.portfolioService.likePortfolio(userId, id, liked);
   }
 }

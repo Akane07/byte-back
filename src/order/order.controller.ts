@@ -1,158 +1,177 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Request, UseGuards, UsePipes, ValidationPipe } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { UserId } from '../auth/current-user.decorator';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { ParseObjectIdPipe } from '../common/parse-object-id.pipe';
+import {
+  CreateOrderDto,
+  CreateResponseDto,
+  OrderListQueryDto,
+  UpdateOrderDto,
+} from './dto/create-order.dto';
 import { OrderService } from './order.service';
-import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
-import { CreateOrderDto, CreateResponseDto, UpdateOrderDto } from './dto/create-order.dto';
-import { ApiBody, ApiOperation, ApiQuery, ApiResponse } from '@nestjs/swagger';
 import { Order, OrderResponse } from './schemas/order.schema';
 
 @Controller('order')
+@UseGuards(JwtAuthGuard)
+@ApiBearerAuth()
 export class OrderController {
-  constructor(private readonly orderService: OrderService) { }
+  constructor(private readonly orderService: OrderService) {}
 
-  @Get('')
-  @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: 'Список заказов', description: 'Получение списка заказов' })
-  @ApiResponse({ status: 200, description: 'Список заказов', type: [Order] })
-  getOrderList(@Request() req: any, @Query('page') page: number = 1, @Query('categories') categories?: string[]) {
-    return this.orderService.getOrderList(req?.user?.userId, page, categories);
+  @Get()
+  @ApiOperation({
+    summary: 'Лента заказов',
+    description: 'Чужие опубликованные заказы, по 10 на страницу',
+  })
+  getOrderList(@UserId() userId: string, @Query() query: OrderListQueryDto) {
+    return this.orderService.getOrderList(userId, query.page, query.categories);
   }
 
-  @Get(':id')
-  @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: 'Заказ', description: 'Получение заказа' })
-  @ApiQuery({ name: 'id', type: String, required: true, description: 'ID заказа' })
-  @ApiResponse({ status: 200, description: 'Заказ', type: Order })
-  getOrder(@Param() params: { id: string }) {
-    return this.orderService.getOrder(params.id);
+  @Post()
+  @ApiOperation({ summary: 'Создать заказ или черновик' })
+  @ApiResponse({ status: 201, type: Order })
+  createOrder(@UserId() userId: string, @Body() dto: CreateOrderDto) {
+    return this.orderService.createOrder(userId, dto);
+  }
+
+  // POST, а не GET — так исторически вызывает фронтенд.
+  @Post('responses')
+  @ApiOperation({ summary: 'Свои отклики на все заказы' })
+  getUserResponses(@UserId() userId: string) {
+    return this.orderService.getUserResponses(userId);
   }
 
   @Get('user/:id')
-  @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: 'Заказы пользователя', description: 'Список заказов пользователя' })
-  @ApiQuery({ name: 'id', type: String, required: true, description: 'ID пользователя' })
-  @ApiResponse({ status: 200, description: 'Список заказов пользователя', type: [Order] })
-  getUserOrders(@Param() params: { id: string }) {
-    return this.orderService.getUserOrders(params.id);
+  @ApiOperation({ summary: 'Опубликованные заказы пользователя' })
+  @ApiResponse({ status: 200, type: [Order] })
+  getUserOrders(@Param('id', ParseObjectIdPipe) id: string) {
+    return this.orderService.getUserOrders(id);
   }
 
   @Get('user/:id/drafts')
-  @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: 'Черновики пользователя', description: 'Список черновиков пользователя' })
-  @ApiQuery({ name: 'id', type: String, required: true, description: 'ID пользователя' })
-  @ApiResponse({ status: 200, description: 'Список черновиков пользователя', type: [Order] })
-  getUserDrafts(@Request() req: any, @Param() params: { id: string }) {
-    return this.orderService.getUserDrafts(params.id, req.user.userId);
+  @ApiOperation({ summary: 'Свои черновики' })
+  @ApiResponse({ status: 200, type: [Order] })
+  getUserDrafts(
+    @UserId() userId: string,
+    @Param('id', ParseObjectIdPipe) id: string,
+  ) {
+    return this.orderService.getUserDrafts(id, userId);
+  }
+
+  @Get(':id')
+  @ApiOperation({ summary: 'Заказ по id' })
+  @ApiResponse({ status: 200, type: Order })
+  getOrder(@Param('id', ParseObjectIdPipe) id: string) {
+    return this.orderService.getOrder(id);
   }
 
   @Patch(':id')
-  @UsePipes(new ValidationPipe({
-    whitelist: true,            // удаляет поля, которых нет в DTO
-    forbidNonWhitelisted: true, // выбрасывает ошибку, если есть лишние поля
-  }))
-  @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: 'Редактирование заказа', description: 'Редактирование заказа' })
-  @ApiQuery({ name: 'id', type: String, required: true, description: 'ID заказа' })
-  @ApiBody({ type: CreateOrderDto, description: 'Данные заказа', required: false })
-  @ApiResponse({ status: 200, description: 'Заказ', type: Order })
-  updateOrder(@Request() req: any, @Param() params: { id: string }, @Body() body: UpdateOrderDto) {
-    return this.orderService.updateOrder(params.id, body, req.user.userId);
+  @ApiOperation({ summary: 'Изменить свой заказ' })
+  @ApiResponse({ status: 200, type: Order })
+  updateOrder(
+    @UserId() userId: string,
+    @Param('id', ParseObjectIdPipe) id: string,
+    @Body() dto: UpdateOrderDto,
+  ) {
+    return this.orderService.updateOrder(id, dto, userId);
   }
 
   @Patch(':id/archive')
-  @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: 'Архивирование заказа', description: 'Архивирование заказа' })
-  @ApiQuery({ name: 'id', type: String, required: true, description: 'ID заказа' })
-  @ApiResponse({ status: 200, description: 'Заказ', type: Order })
-  archiveOrder(@Request() req: any, @Param() params: { id: string }) {
-    return this.orderService.archiveOrder(params.id, req.user.userId);
+  @ApiOperation({ summary: 'Отправить свой заказ в архив' })
+  @ApiResponse({ status: 200, type: Order })
+  archiveOrder(
+    @UserId() userId: string,
+    @Param('id', ParseObjectIdPipe) id: string,
+  ) {
+    return this.orderService.archiveOrder(id, userId);
   }
 
   @Delete(':id')
-  @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: 'Удаление заказа', description: 'Удаление заказа' })
-  @ApiQuery({ name: 'id', type: String, required: true, description: 'ID заказа' })
-  deleteOrder(@Request() req: any, @Param() params: { id: string }) {
-    return this.orderService.deleteOrder(params.id, req.user.userId);
-  }
-
-  @Post('')
-  @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: 'Создание заказа', description: 'Создание заказа' })
-  @ApiBody({ type: CreateOrderDto, description: 'Данные заказа', required: true })
-  @ApiResponse({ status: 200, description: 'Заказ', type: Order })
-  createOrder(@Request() req: any, @Body() body: CreateOrderDto) {
-    return this.orderService.createOrder(req.user.userId, body);
-  }
-
-  @Post(':id/response')
-  @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: 'Добавление отклика', description: 'Добавление отклика к заказу' })
-  @ApiQuery({ name: 'id', type: String, required: true, description: 'ID заказа' })
-  @ApiBody({ type: CreateResponseDto, description: 'Данные отклика', required: true })
-  @ApiResponse({ status: 200, description: 'Отклик', type: OrderResponse })
-  createOrderResponse(@Request() req: any, @Param() params: { id: string }, @Body() body: { description: string }) {
-    return this.orderService.createOrderResponse(params.id, req.user.userId, body);
-  }
-
-  @Get(':id/responses')
-  @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: 'Получение откликов к заказу', description: 'Получение откликов к заказу по ID' })
-  @ApiQuery({ name: 'id', type: String, required: true, description: 'ID заказа' })
-  @ApiResponse({ status: 200, description: 'Отклик', type: [OrderResponse] })
-  getOrderResponses(@Request() req: any, @Param() params: { id: string }) {
-    return this.orderService.getOrderResponses(params.id, req.user.userId);
-  }
-
-  @Get(':id/response')
-  @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: 'Получение отклика', description: 'Получение своего отклика к заказу' })
-  @ApiQuery({ name: 'id', type: String, required: true, description: 'ID заказа' })
-  @ApiResponse({ status: 200, description: 'Отклик', type: OrderResponse })
-  getOrderResponse(@Request() req: any, @Param() params: { id: string }) {
-    return this.orderService.getOrderResponse(req.user.userId, params.id);
-  }
-
-  @Get(':id/response/:rid')
-  @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: 'Получение отклика', description: 'Получение отклика к заказу' })
-  @ApiQuery({ name: 'id', type: String, required: true, description: 'ID заказа' })
-    @ApiQuery({ name: 'rid', type: String, required: true, description: 'ID отклика' })
-  @ApiResponse({ status: 200, description: 'Отклик', type: OrderResponse })
-  getOrderResponseById(@Request() req: any, @Param() params: { id: string, rid: string }) {
-    return this.orderService.getOrderResponseById(params.rid);
-  }
-
-  @Delete(':id/response/:rid')
-  @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: 'Удаление отклика', description: 'Удаление своего отклика к заказу' })
-  @ApiQuery({ name: 'id', type: String, required: true, description: 'ID заказа' })
-  @ApiQuery({ name: 'rid', type: String, required: true, description: 'ID отклика' })
-  deleteOrderResponse(@Request() req: any, @Param() params: { id: string, rid: string }) {
-    return this.orderService.deleteOrderResponse(req.user.userId, params.id, params.rid);
-  }
-
-  @Patch(':id/response/:rid')
-  @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: 'Изменение отклика', description: 'Изменение своего отклика к заказу' })
-  @ApiQuery({ name: 'id', type: String, required: true, description: 'ID заказа' })
-  @ApiQuery({ name: 'rid', type: String, required: true, description: 'ID отклика' })
-  editOrderResponse(@Request() req: any, @Param() params: { id: string, rid: string }, @Body() body: { description: string }) {
-    return this.orderService.editOrderResponse(req.user.userId, params.rid, body.description);
-  }
-
-  @Post('responses')
-  @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: 'Получение откликов пользователя', description: 'Получение своих откликов на все заказы' })
-  @ApiResponse({ status: 200, description: 'Отклики', type: [OrderResponse] })
-  getUserResponses(@Request() req: any) {
-    return this.orderService.getUserResponses(req.user.userId);
+  @ApiOperation({ summary: 'Удалить свой заказ вместе с откликами' })
+  deleteOrder(
+    @UserId() userId: string,
+    @Param('id', ParseObjectIdPipe) id: string,
+  ) {
+    return this.orderService.deleteOrder(id, userId);
   }
 
   @Post(':id/viewed')
-  @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: 'Просмотр заказа', description: 'Просмотр заказа из списка' })
-  @ApiQuery({ name: 'id', type: String, required: true, description: 'ID заказа' })
-  viewOrder(@Request() req: any, @Param() params: { id: string }) {
-    return this.orderService.viewOrder(req.user.userId, params.id);
+  @ApiOperation({ summary: 'Отметить заказ просмотренным' })
+  viewOrder(
+    @UserId() userId: string,
+    @Param('id', ParseObjectIdPipe) id: string,
+  ) {
+    return this.orderService.viewOrder(userId, id);
+  }
+
+  @Post(':id/response')
+  @ApiOperation({ summary: 'Откликнуться на заказ' })
+  @ApiResponse({ status: 201, type: OrderResponse })
+  createOrderResponse(
+    @UserId() userId: string,
+    @Param('id', ParseObjectIdPipe) id: string,
+    @Body() dto: CreateResponseDto,
+  ) {
+    return this.orderService.createOrderResponse(id, userId, dto.description);
+  }
+
+  @Get(':id/responses')
+  @ApiOperation({ summary: 'Отклики на свой заказ' })
+  @ApiResponse({ status: 200, type: [OrderResponse] })
+  getOrderResponses(
+    @UserId() userId: string,
+    @Param('id', ParseObjectIdPipe) id: string,
+  ) {
+    return this.orderService.getOrderResponses(id, userId);
+  }
+
+  @Get(':id/response')
+  @ApiOperation({ summary: 'Свой отклик на заказ (null, если не откликались)' })
+  @ApiResponse({ status: 200, type: OrderResponse })
+  getOrderResponse(
+    @UserId() userId: string,
+    @Param('id', ParseObjectIdPipe) id: string,
+  ) {
+    return this.orderService.getOrderResponse(userId, id);
+  }
+
+  @Get(':id/response/:rid')
+  @ApiOperation({ summary: 'Отклик по id — автору и владельцу заказа' })
+  @ApiResponse({ status: 200, type: OrderResponse })
+  getOrderResponseById(
+    @UserId() userId: string,
+    @Param('rid', ParseObjectIdPipe) rid: string,
+  ) {
+    return this.orderService.getOrderResponseById(rid, userId);
+  }
+
+  @Patch(':id/response/:rid')
+  @ApiOperation({ summary: 'Изменить свой отклик' })
+  @ApiResponse({ status: 200, type: OrderResponse })
+  editOrderResponse(
+    @UserId() userId: string,
+    @Param('rid', ParseObjectIdPipe) rid: string,
+    @Body() dto: CreateResponseDto,
+  ) {
+    return this.orderService.editOrderResponse(userId, rid, dto.description);
+  }
+
+  @Delete(':id/response/:rid')
+  @ApiOperation({ summary: 'Удалить свой отклик' })
+  deleteOrderResponse(
+    @UserId() userId: string,
+    @Param('rid', ParseObjectIdPipe) rid: string,
+  ) {
+    return this.orderService.deleteOrderResponse(userId, rid);
   }
 }

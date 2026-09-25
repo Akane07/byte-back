@@ -1,177 +1,135 @@
-import { Injectable } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Message, MessageDocument, MessageDto } from './schemas/chat.schema';
 import { Model } from 'mongoose';
-import { Order, OrderDocument, OrderResponse, OrderResponseDocument } from 'src/order/schemas/order.schema';
+import { Message, MessageDocument, MessageStatus } from './schemas/chat.schema';
+
+type NewMessage = Pick<Message, 'senderId' | 'receiverId'> &
+  Partial<Omit<Message, 'senderId' | 'receiverId' | 'createdAt'>>;
 
 @Injectable()
 export class ChatService {
-    constructor(
-        @InjectModel(Message.name) private messageModel: Model<MessageDocument>,
-        @InjectModel(Order.name) private orderModel: Model<OrderDocument>,
-        @InjectModel(OrderResponse.name) private orderResponseModel: Model<OrderResponseDocument>,
-    ) { }
+  constructor(
+    @InjectModel(Message.name) private readonly messageModel: Model<Message>,
+  ) {}
 
-    async saveMessage(data: MessageDto): Promise<Message> {
-        const message = new this.messageModel(data);
-        return message.save();
-    }
+  saveMessage(data: NewMessage) {
+    return this.messageModel.create(data);
+  }
 
-    async getChatBetweenUsers(userA: string, userB: string) {
-        if (!userA || !userB) return [];
+  getChatBetweenUsers(userId: string, otherId: string) {
+    return this.messageModel
+      .find({
+        $or: [
+          { senderId: userId, receiverId: otherId },
+          { senderId: otherId, receiverId: userId },
+        ],
+      })
+      .sort({ createdAt: 1 });
+  }
 
-        return this.messageModel.find({
-            $or: [
-                { senderId: userA, receiverId: userB },
-                { senderId: userB, receiverId: userA },
-            ],
-        }).sort({ createdAt: 1 }); // сортировка по времени
-    }
-
-    async getUserChats(userId: string) {
-        if (!userId) return [];
-
-        const chats = await this.messageModel.aggregate([
-            {
-                $match: {
-                    $or: [
-                        { senderId: userId },
-                        { receiverId: userId }
-                    ]
-                }
+  /** Список диалогов пользователя: собеседник и последнее сообщение. */
+  getUserChats(userId: string) {
+    return this.messageModel.aggregate([
+      { $match: { $or: [{ senderId: userId }, { receiverId: userId }] } },
+      {
+        $addFields: {
+          otherUserId: {
+            $cond: [{ $eq: ['$senderId', userId] }, '$receiverId', '$senderId'],
+          },
+          displayText: {
+            $switch: {
+              branches: [
+                { case: { $eq: ['$mediaType', 'video'] }, then: 'Видео' },
+                {
+                  case: {
+                    $and: [
+                      { $eq: ['$mediaType', 'image'] },
+                      { $eq: ['$text', ''] },
+                    ],
+                  },
+                  then: 'Изображение',
+                },
+              ],
+              default: '$text',
             },
-            {
-                $addFields: {
-                    otherUserId: {
-                        $cond: [
-                            { $eq: ['$senderId', userId] },
-                            '$receiverId',
-                            '$senderId'
-                        ]
-                    },
-                    isOwnMessage: { $eq: ['$senderId', userId] },
-                    displayText: {
-                        $cond: [
-                            { $eq: ['$mediaType', 'video'] },
-                            'Видео',
-                            '$text'
-                        ]
-                    }
-                }
+          },
+        },
+      },
+      { $sort: { createdAt: -1 } },
+      {
+        $group: {
+          _id: '$otherUserId',
+          lastMessage: { $first: '$displayText' },
+          lastMessageDate: { $first: '$createdAt' },
+          isRead: {
+            $first: {
+              $cond: [{ $eq: ['$senderId', userId] }, '$isRead', '$$REMOVE'],
             },
-            { $sort: { createdAt: -1 } },
-            {
-                $group: {
-                    _id: '$otherUserId',
-                    lastMessage: { $first: '$displayText' },
-                    lastMessageDate: { $first: '$createdAt' },
-                    isRead: {
-                        $first: {
-                            $cond: [
-                                { $eq: ['$senderId', userId] },
-                                '$isRead',
-                                '$$REMOVE'
-                            ]
-                        }
-                    }
-                }
+          },
+        },
+      },
+      {
+        $addFields: {
+          objectOtherUserId: {
+            $convert: {
+              input: '$_id',
+              to: 'objectId',
+              onError: null,
+              onNull: null,
             },
-            {
-                // преобразуем строку в ObjectId
-                $addFields: {
-                    objectOtherUserId: {
-                        $convert: {
-                            input: '$_id',
-                            to: 'objectId',
-                            onError: null,
-                            onNull: null
-                        }
-                    }
-                }
-            },
-            {
-                $lookup: {
-                    from: 'users',
-                    localField: 'objectOtherUserId',
-                    foreignField: '_id',
-                    as: 'user'
-                }
-            },
-            { $unwind: '$user' },
-            {
-                $project: {
-                    _id: 0,
-                    userId: '$_id',
-                    name: '$user.name',
-                    avatar: '$user.avatar',
-                    lastMessage: 1,
-                    lastMessageDate: 1,
-                    isRead: 1
-                }
-            },
-            { $sort: { lastMessageDate: -1 } }
-        ]);
+          },
+        },
+      },
+      {
+        $lookup: {
+          from: 'users',
+          localField: 'objectOtherUserId',
+          foreignField: '_id',
+          as: 'user',
+        },
+      },
+      { $unwind: '$user' },
+      {
+        $project: {
+          _id: 0,
+          userId: '$_id',
+          name: '$user.name',
+          nickname: '$user.nickname',
+          avatar: '$user.avatar',
+          lastMessage: 1,
+          lastMessageDate: 1,
+          isRead: 1,
+        },
+      },
+      { $sort: { lastMessageDate: -1 } },
+    ]);
+  }
 
-        return chats;
+  async findMessage(id: string): Promise<MessageDocument> {
+    const message = await this.messageModel.findById(id);
+    if (!message) {
+      throw new NotFoundException('Сообщение не найдено');
     }
+    return message;
+  }
 
-    async deleteMessage(id: string) {
-        console.log(id);
-        
-        if (!id) return;
-
-        const res = await this.messageModel.findByIdAndDelete(id).exec();
-
-        console.log(res);
-        
-
-        return this.messageModel.findByIdAndDelete(id).exec();
+  /** Удалить сообщение может только его автор. */
+  async deleteMessage(id: string, userId: string) {
+    const message = await this.findMessage(id);
+    if (message.senderId !== userId) {
+      throw new ForbiddenException('Удалить можно только своё сообщение');
     }
+    await message.deleteOne();
+    return message;
+  }
 
-    async acceptMessage(id: string, orderId: string, userId: string) {
-        if (!id || !orderId || !userId) return;
-
-        const order = await this.orderModel.findById(orderId).exec();
-
-        if (!order) return;
-
-        order.performer = userId;
-        order.status = 'pending';
-
-        await order.save();
-        return this.messageModel.findByIdAndUpdate(id, { status: 'accepted' }).exec();
-    }
-
-    async finishOrderMessage(orderId: string) {
-        if (!orderId) return;
-
-        const order = await this.orderModel.findById(orderId).exec();
-
-        if (!order) return;
-
-        order.status = 'completed';
-
-        await order.save();
-    }
-
-    async rejectMessage(id: string) {
-        if (!id) return;
-
-        return this.messageModel.findByIdAndUpdate(id, { status: 'rejected' }).exec();
-    }
-
-    async getOrderBetweenUsers(userId: string, otherId: string) {
-        if (userId === otherId) return [];
-        if (!userId || !otherId) return [];
-
-        const orders = await this.orderModel.find({ performer: { $in: [userId, otherId] }, user_id: { $in: [userId, otherId] }, draft: { $ne: true } }).exec();
-        
-        return orders;
-    }
-
-    async patchResponse(responseId: string, messageId: string) {
-        if (!responseId || !messageId) return;
-
-        return this.orderResponseModel.findByIdAndUpdate(responseId, { messageId }).exec();
-    }
+  async setStatus(message: MessageDocument, status: MessageStatus) {
+    message.status = status;
+    await message.save();
+    return message;
+  }
 }

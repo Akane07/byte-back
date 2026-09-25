@@ -1,31 +1,24 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document } from 'mongoose';
+import { ApiProperty } from '@nestjs/swagger';
 
-export type CategoryDocument = Category & Document;
+const hideMongoId = {
+  versionKey: false,
+  transform: (_: unknown, ret: Record<string, unknown>) => {
+    delete ret._id;
+    return ret;
+  },
+};
 
-@Schema()
+@Schema({ toJSON: hideMongoId, toObject: hideMongoId })
 export class Category {
+  // Числовой id задаётся вручную и используется в заказах и в справочнике навыков.
+  @ApiProperty({ example: 1 })
   @Prop({ unique: true, required: true })
   id: number;
 
+  @ApiProperty({ example: 'Веб-разработка' })
   @Prop({ required: true })
   title: string;
 }
 
 export const CategorySchema = SchemaFactory.createForClass(Category);
-
-CategorySchema.set('toJSON', {
-  virtuals: true,
-  versionKey: false,
-  transform: (_, ret) => {
-    delete ret._id;
-  }
-});
-
-CategorySchema.set('toObject', {
-  virtuals: true,
-  versionKey: false,
-  transform: (_, ret) => {
-    delete ret._id;
-  }
-});

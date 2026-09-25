@@ -1,133 +1,139 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { Portfolio, PortfolioDocument } from './schemas/portfolio.schema';
-import { Model } from 'mongoose';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
 import { PortfolioDto, UpdatePortfolioDto } from './dto/portfolio.dto';
+import { Portfolio, PortfolioDocument } from './schemas/portfolio.schema';
+
+export const MAX_PORTFOLIO_IMAGES = 5;
+
+type UploadedMedia = { images: string[]; video?: string };
 
 @Injectable()
 export class PortfolioService {
-    constructor(
-        @InjectModel(Portfolio.name) private readonly portfolioModel: Model<PortfolioDocument>,
-    ) { }
+  constructor(
+    @InjectModel(Portfolio.name)
+    private readonly portfolioModel: Model<Portfolio>,
+  ) {}
 
-    async getPortfolioList(userId: string) {
-        const portfolios = await this.portfolioModel.find({ user_id: userId }).lean();
-        return portfolios.map((portfolio) => {
-            delete portfolio.__v;
+  async getPortfolioList(userId: string) {
+    const portfolios = await this.portfolioModel
+      .find({ user_id: userId })
+      .sort({ created_at: -1 });
+    return portfolios.map(serialize);
+  }
 
-            const res = {
-                ...portfolio,
-                viewed_by: portfolio.viewed_by.length,
-                id: portfolio._id,
-            };
+  async getPortfolio(id: string) {
+    return serialize(await this.findPortfolio(id));
+  }
 
-            delete res._id;
-
-            return res;
-        });
+  async createPortfolio(
+    userId: string,
+    dto: PortfolioDto,
+    media: UploadedMedia,
+  ) {
+    if (!media.images.length) {
+      throw new BadRequestException('Добавьте хотя бы одно изображение');
     }
 
-    async getPortfolio(id: string) {
-        const portfolio = await this.portfolioModel.findById(id).lean();
+    const portfolio = await this.portfolioModel.create({
+      ...dto,
+      images: media.images,
+      video: media.video,
+      user_id: userId,
+    });
+    return serialize(portfolio);
+  }
 
-        if (!portfolio) throw new NotFoundException('Portfolio not found');
+  async updatePortfolio(
+    userId: string,
+    id: string,
+    dto: UpdatePortfolioDto,
+    media: UploadedMedia,
+  ) {
+    const portfolio = await this.findOwnPortfolio(id, userId);
 
-        delete portfolio.__v;
+    // Оставить можно только картинки, которые уже принадлежат этому проекту —
+    // иначе через photos можно было бы подставить чужие файлы.
+    const kept = dto.photos.filter((url) => portfolio.images.includes(url));
+    const images = [...kept, ...media.images];
 
-        const res = {
-            ...portfolio,
-            viewed_by: portfolio.viewed_by.length,
-            id: portfolio._id,
-        };
-
-        delete res._id;
-
-        return res;
+    if (!images.length) {
+      throw new BadRequestException('Добавьте хотя бы одно изображение');
+    }
+    if (images.length > MAX_PORTFOLIO_IMAGES) {
+      throw new BadRequestException(
+        `В проекте может быть не больше ${MAX_PORTFOLIO_IMAGES} изображений`,
+      );
     }
 
-    async createPortfolio(userId: string, body: PortfolioDto) {
-        const portfolio = new this.portfolioModel({ ...body, user_id: userId });
-        await portfolio.save();
-        return portfolio;
+    // Новый файл заменяет видео, пустая строка в video удаляет его,
+    // а если поле не передано — видео остаётся прежним.
+    const video =
+      media.video ?? (dto.video === '' ? undefined : portfolio.video);
+
+    portfolio.set({
+      title: dto.title,
+      description: dto.description,
+      role: dto.role,
+      skills: dto.skills,
+      images,
+      video,
+    });
+    await portfolio.save();
+    return serialize(portfolio);
+  }
+
+  async deletePortfolio(userId: string, id: string) {
+    const portfolio = await this.findOwnPortfolio(id, userId);
+    await portfolio.deleteOne();
+    return { deleted: true };
+  }
+
+  async viewPortfolio(userId: string, id: string) {
+    const portfolio = await this.findPortfolio(id);
+    if (portfolio.user_id !== userId) {
+      await portfolio.updateOne({ $addToSet: { viewed_by: userId } });
+    }
+    return { viewed: true };
+  }
+
+  async likePortfolio(userId: string, id: string, liked: boolean) {
+    const portfolio = await this.findPortfolio(id);
+
+    if (portfolio.user_id !== userId) {
+      await portfolio.updateOne(
+        liked
+          ? { $addToSet: { liked_by: userId } }
+          : { $pull: { liked_by: userId } },
+      );
     }
 
-    async deletePortfolio(userId: string, id: string) {
-        const portfolio = await this.portfolioModel.findById(id);
+    return this.getPortfolio(id);
+  }
 
-        if (!portfolio) {
-            throw new NotFoundException('Portfolio not found');
-        }
-
-        if (portfolio.user_id !== userId) {
-            throw new NotFoundException('Portfolio not found');
-        }
-
-        await this.portfolioModel.deleteOne({ _id: id });
-        return true;
+  private async findPortfolio(id: string): Promise<PortfolioDocument> {
+    const portfolio = await this.portfolioModel.findById(id);
+    if (!portfolio) {
+      throw new NotFoundException('Проект не найден');
     }
+    return portfolio;
+  }
 
-    async updatePortfolio(userId: string, id: string, body: UpdatePortfolioDto) {
-        const portfolio = await this.portfolioModel.findById(id);
-
-        if (!portfolio) {
-            throw new Error('Portfolio not found');
-        }
-
-        if (portfolio.user_id !== userId) {
-            throw new Error('Portfolio not found');
-        }
-
-        portfolio.set(body);
-        await portfolio.save();
-
-        return portfolio;
+  private async findOwnPortfolio(id: string, userId: string) {
+    const portfolio = await this.findPortfolio(id);
+    if (portfolio.user_id !== userId) {
+      throw new NotFoundException('Проект не найден');
     }
+    return portfolio;
+  }
+}
 
-    async viewPortfolio(userId: string, id: string) {
-        const project = await this.portfolioModel.findById(id);
-        if (!project) {
-            throw new Error('Проект не найден');
-        }
-
-        if (userId === project.user_id) return;
-
-        if (!project.viewed_by?.includes(userId)) {
-            project.viewed_by.push(userId);
-            await project.save();
-        }
-    }
-
-    async likePortfolio(userId: string, id: string, isLike: boolean) {
-        const project = await this.portfolioModel.findById(id);
-        if (!project) {
-            throw new Error('Проект не найден');
-        }
-
-        if (userId === project.user_id) return await this.getPortfolio(id);
-
-        if (isLike) {
-            if (!project.liked_by.includes(userId)) {
-                // project.liked_by.push(userId);
-                // await project.save();
-
-                await this.portfolioModel.updateOne(
-                    { _id: id },
-                    { $addToSet: { liked_by: userId } }
-                );
-            }
-        } else {
-            if (project.liked_by.includes(userId)) {
-                const index = project.liked_by.indexOf(userId);
-                // project.liked_by.splice(index, 1);
-                // await project.save();
-
-                await this.portfolioModel.updateOne(
-                    { _id: id },
-                    { $pull: { liked_by: userId } }
-                );
-            }
-        }
-
-        return await this.getPortfolio(id);
-    }
+/** Ответ API: id вместо _id, число просмотров вместо списка просмотревших. */
+function serialize(portfolio: PortfolioDocument) {
+  const { _id, __v, viewed_by, ...fields } = portfolio.toObject();
+  return { ...fields, id: _id.toString(), viewed_by: viewed_by.length };
 }

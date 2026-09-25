@@ -1,99 +1,102 @@
-import { Body, Controller, Get, Param, Post, Request, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
-import { UserService } from './user.service';
-import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
-import { ApiBody, ApiOperation, ApiQuery, ApiResponse } from '@nestjs/swagger';
-import { ChangePasswordDto, User } from 'src/auth/schemas/user.schema';
-import { AccessToken } from 'src/auth/dto/create-user.dto';
-import { countries } from './constants/countries';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  UploadedFile,
+  UseGuards,
+  UseInterceptors,
+} from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { extname } from 'path';
-import { diskStorage } from 'multer';
+import {
+  ApiBearerAuth,
+  ApiBody,
+  ApiOperation,
+  ApiResponse,
+} from '@nestjs/swagger';
+import { UserId } from '../auth/current-user.decorator';
+import { AccessToken, ChangePasswordDto } from '../auth/dto/create-user.dto';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { User } from '../auth/schemas/user.schema';
+import { avatarUpload, uploadUrl } from '../common/uploads';
+import { ParseObjectIdPipe } from '../common/parse-object-id.pipe';
+import { countries } from './constants/countries';
+import { UpdateUserDto } from './dto/update-user.dto';
+import { UserService } from './user.service';
+
+const sortedCountries = [...countries].sort((a, b) => a.localeCompare(b, 'ru'));
 
 @Controller('user')
 export class UserController {
-  constructor(private readonly userService: UserService) { }
+  constructor(private readonly userService: UserService) {}
 
   @Get('countries')
-  @ApiOperation({ summary: 'Получить список стран', description: 'Получить список стран' })
-  @ApiResponse({ status: 200, description: 'Список строк, названий стран', type: [String] })
+  @ApiOperation({ summary: 'Список стран' })
+  @ApiResponse({ status: 200, type: [String] })
   getCountries() {
-    return countries.sort();
+    return sortedCountries;
   }
 
   @Get('me')
   @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: 'Получить информацию о пользователе (себе)', description: 'Получить информацию о пользователе (себе)' })
-  @ApiResponse({ status: 200, description: 'Пользователь', type: User })
-  getMe(@Request() req: any) {
-    return this.userService.getUser(req.user.userId, req.user.userId);
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Свой профиль' })
+  @ApiResponse({ status: 200, type: User })
+  getMe(@UserId() userId: string) {
+    return this.userService.getMe(userId);
   }
 
   @Post('me')
   @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: 'Изменить информацию профиля', description: 'Изменить информацию в своем профиле' })
-  @ApiResponse({ status: 200, description: 'Пользователь', type: User })
-  async patchMe(@Request() req, @Body() updateData: any) {
-    return await this.userService.updateUser(req.user.userId, updateData);
-  }
-
-  @Get(':id')
-  // @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: 'Получить информацию о пользователе', description: 'Получить информацию о пользователе' })
-  @ApiQuery({ name: 'id', type: String, description: 'ID пользователя', required: true })
-  @ApiResponse({ status: 200, description: 'Пользователь', type: User })
-  getUser(@Request() req, @Param() params: { id: string }) {
-    return this.userService.getUser(params.id, req?.user?.userId);
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Изменить свой профиль' })
+  @ApiResponse({ status: 200, type: User })
+  updateMe(@UserId() userId: string, @Body() dto: UpdateUserDto) {
+    return this.userService.updateUser(userId, dto);
   }
 
   @Post('change-password')
   @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: 'Смена пароля', description: 'Смена пароля пользователя' })
-  @ApiBody({
-    type: ChangePasswordDto,
-    description: 'Пользователь',
-    required: true
-  })
-  @ApiResponse({ status: 200, description: 'Токен', type: AccessToken })
-  changePassword(@Request() req: any, @Body() body: { password: string; newPassword: string }) {
-    return this.userService.changePassword(req.user.userId, body.password, body.newPassword);
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Смена пароля' })
+  @ApiBody({ type: ChangePasswordDto })
+  @ApiResponse({ status: 200, type: AccessToken })
+  changePassword(@UserId() userId: string, @Body() dto: ChangePasswordDto) {
+    return this.userService.changePassword(
+      userId,
+      dto.password,
+      dto.newPassword,
+    );
   }
 
   @Post('set_avatar')
   @UseGuards(JwtAuthGuard)
-  @UseInterceptors(
-    FileInterceptor('avatar', {
-      storage: diskStorage({
-        destination: './uploads/avatars', // Путь сохранения файла
-        filename: (req, file, callback) => {
-          const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
-          callback(null, `${uniqueSuffix}${extname(file.originalname)}`);
-        },
-      }),
-      fileFilter: (req, file, callback) => {
-        const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/jpg'];
-        if (allowedMimeTypes.includes(file.mimetype)) {
-          callback(null, true);
-        } else {
-          callback(new Error('Invalid file type. Only JPEG, PNG are allowed.'), false);
-        }
-      },
-      limits: {
-        fileSize: 3 * 1024 * 1024, // Максимальный размер файла — 5 МБ
-      },
-    }),
-  )
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Загрузить аватар',
+    description: 'multipart, поле avatar, JPEG/PNG/WebP до 3 МБ',
+  })
+  @UseInterceptors(FileInterceptor('avatar', avatarUpload))
   async setAvatar(
-    @Request() req,
-    @UploadedFile() file: any,
-  ): Promise<{ message: string; avatarUrl: string }> {
+    @UserId() userId: string,
+    @UploadedFile() file?: Express.Multer.File,
+  ) {
     if (!file) {
-      throw new Error('File upload failed');
+      throw new BadRequestException('Файл не передан');
     }
-
-    const userId = req.user.userId; // Извлекаем userId из токена
-    const avatarUrl = `/uploads/avatars/${file.filename}`;
+    const avatarUrl = uploadUrl('avatars', file.filename);
     await this.userService.updateUser(userId, { avatar: avatarUrl });
+    return { avatarUrl };
+  }
 
-    return { message: 'Avatar updated successfully', avatarUrl };
+  // Параметрический маршрут объявлен последним, чтобы не перехватывать
+  // статические пути вроде /user/me и /user/countries.
+  @Get(':id')
+  @ApiOperation({ summary: 'Публичный профиль пользователя' })
+  @ApiResponse({ status: 200, type: User })
+  getUser(@Param('id', ParseObjectIdPipe) id: string) {
+    return this.userService.getUser(id);
   }
 }

@@ -1,72 +1,67 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document } from 'mongoose';
+import { HydratedDocument } from 'mongoose';
 
-export type MessageDocument = Message & Document;
+export const MEDIA_TYPES = ['image', 'video', 'none'] as const;
+export const MESSAGE_STATUSES = [
+  'rejected',
+  'accepted',
+  'server',
+  'response',
+] as const;
 
-@Schema({ timestamps: true })
+export type MediaType = (typeof MEDIA_TYPES)[number];
+export type MessageStatus = (typeof MESSAGE_STATUSES)[number];
+
+const idTransform = {
+  virtuals: true,
+  versionKey: false,
+  transform: (_: unknown, ret: Record<string, unknown>) => {
+    ret.id = String(ret._id);
+    delete ret._id;
+    return ret;
+  },
+};
+
+export type MessageDocument = HydratedDocument<Message>;
+
+@Schema({ timestamps: true, toJSON: idTransform, toObject: idTransform })
 export class Message {
-  id: string;
-  
-  @Prop({ required: true })
+  @Prop({ required: true, index: true })
   senderId: string;
 
-  @Prop({ required: true })
+  @Prop({ required: true, index: true })
   receiverId: string;
 
-  @Prop()
-  text?: string;
+  @Prop({ default: '' })
+  text: string;
 
   @Prop()
   mediaUrl?: string;
 
-  @Prop({ enum: ['image', 'video', 'none'], default: 'none' })
-  mediaType: 'image' | 'video' | 'none';
+  @Prop({ enum: MEDIA_TYPES, default: 'none' })
+  mediaType: MediaType;
 
   @Prop({ default: false })
   isRead: boolean;
 
+  /** Предложение заказа от заказчика исполнителю. */
   @Prop({ default: false })
   is_suggest: boolean;
 
-  @Prop({ required: false })
-  orderId: string;
+  @Prop()
+  orderId?: string;
 
-  @Prop({ required: false })
-  responseId: string;
+  @Prop()
+  responseId?: string;
 
-  @Prop({ required: false })
-  status: 'rejected' | 'accepted' | 'server' | 'response';
+  /**
+   * server — служебное сообщение, response — отклик на заказ,
+   * accepted / rejected — ответ на предложение или отклик.
+   */
+  @Prop({ enum: MESSAGE_STATUSES })
+  status?: MessageStatus;
+
+  createdAt: Date;
 }
 
 export const MessageSchema = SchemaFactory.createForClass(Message);
-
-MessageSchema.set('toJSON', {
-  virtuals: true,
-  versionKey: false,
-  transform: (_, ret) => {
-    ret.id = ret._id; // Создаём поле `id`
-    delete ret._id;   // Удаляем `_id`
-  }
-});
-
-MessageSchema.set('toObject', {
-  virtuals: true,
-  versionKey: false,
-  transform: (_, ret) => {
-    ret.id = ret._id;
-    delete ret._id;
-  }
-});
-
-export interface MessageDto {
-  senderId: string;
-  receiverId: string;
-  text: string;
-  mediaUrl: string;
-  mediaType: 'image' | 'video' | 'none';
-  createdAt: string;
-  is_suggest: boolean;
-  status?: 'rejected' | 'accepted' | 'server' | 'response';
-  orderId?: string;
-  responseId?: string; 
-}

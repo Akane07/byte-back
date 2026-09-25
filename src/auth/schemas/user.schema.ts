@@ -1,101 +1,109 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { ApiProperty } from '@nestjs/swagger';
-import { Document } from 'mongoose';
+import { HydratedDocument } from 'mongoose';
 
-export type UserDocument = User & Document;
+export type UserDocument = HydratedDocument<User>;
 
 @Schema()
 export class User {
-  id: string;
-
-  @ApiProperty({ example: 'john_doe@example.com', description: 'Логин пользователя' })
+  @ApiProperty({ example: 'ivan@example.com', description: 'Почта' })
   @Prop({ required: true, unique: true })
   email: string;
 
-  @Prop({ required: true })
+  // Поля ниже помечены select: false — без явного .select('+поле')
+  // они не загружаются и не могут случайно попасть в ответ API.
+  @Prop({ required: true, select: false })
   passwordHash: string;
 
-  @Prop({ required: true })
+  @Prop({ required: true, select: false })
   salt: string;
 
-  @ApiProperty({ example: 'John Doe', description: 'Имя пользователя' })
-  @Prop({ default: "" })
+  /** Число итераций PBKDF2. У старых записей поля нет — это 1000. */
+  @Prop({ select: false })
+  hash_iterations?: number;
+
+  @Prop({ select: false })
+  verification_token?: string;
+
+  @ApiProperty({ example: 'Иван Петров', description: 'Имя' })
+  @Prop({ default: '' })
   name: string;
 
-  @ApiProperty({ example: 'John228', description: 'Ник пользователя' })
-  @Prop({ default: "" })
+  @ApiProperty({ example: 'ivan_dev', description: 'Ник' })
+  @Prop({ default: '' })
   nickname: string;
 
-  @ApiProperty({ example: 'description', description: 'Описание пользователя' })
-  @Prop({ required: false })
+  @ApiProperty({ example: 'Frontend-разработчик', description: 'О себе' })
+  @Prop({ default: '' })
   description: string;
 
-  @ApiProperty({ example: '89281112233', description: 'Номер телефона' })
-  @Prop({ required: false })
+  @ApiProperty({ example: '+79281112233', description: 'Телефон' })
+  @Prop({ default: '' })
   phone: string;
 
-  @ApiProperty({ example: 'avatar', description: 'Аватар пользователя' })
-  @Prop({ default: "" })
+  @ApiProperty({ example: '/uploads/avatars/1.jpg', description: 'Аватар' })
+  @Prop({ default: '' })
   avatar: string;
 
-  @ApiProperty({ example: true, description: 'Подтвержден ли email' })
+  @ApiProperty({ example: true, description: 'Подтверждена ли почта' })
   @Prop({ default: false })
   is_verified: boolean;
 
-  @Prop({ required: false })
-  verification_token: string | null; // Токен для подтверждения email
+  @ApiProperty({ example: 'Россия', description: 'Страна' })
+  @Prop({ default: '' })
+  country: string;
 
-  @ApiProperty({ example: 'Russia', description: 'Страна пользователя' })
-  @Prop({ required: false })
-  country: string | null;
+  @ApiProperty({
+    example: '2025-01-01T00:00:00.000Z',
+    description: 'Последний вход',
+  })
+  @Prop()
+  last_seen?: string;
 
-  @ApiProperty({ example: '2022-01-01T00:00:00.000Z', description: 'Дата последнего входа' })
-  @Prop({ required: false })
-  last_seen: string | null;
-
-  @ApiProperty({ example: '2022-01-01T00:00:00.000Z', description: 'Дата создания аккаунта' })
+  @ApiProperty({
+    example: '2025-01-01T00:00:00.000Z',
+    description: 'Регистрация',
+  })
   @Prop({ default: Date.now })
   created_at: Date;
 
-  @ApiProperty({ example: 5, description: 'Рейтинг пользователя' })
+  @ApiProperty({ example: 5, description: 'Рейтинг' })
   @Prop({ default: 0 })
   rating: number;
 
-  @ApiProperty({ example: 5, description: 'Количество заказов пользователя' })
+  @ApiProperty({ example: 5, description: 'Количество опубликованных заказов' })
   @Prop({ default: 0 })
   orders_count: number;
 
-  @ApiProperty({ example: 5, description: 'Количество отзывов пользователя' })
+  @ApiProperty({ example: 5, description: 'Количество отзывов' })
   @Prop({ default: 0 })
   reviews_count: number;
 
-  @ApiProperty({ example: ['Vue', 'React', 'Angular'], description: 'Массив навыков' })
-  @Prop({ default: [] })
+  @ApiProperty({ example: ['Vue', 'TypeScript'], description: 'Навыки' })
+  @Prop({ type: [String], default: [] })
   skills: string[];
 
-  @ApiProperty({ example: 'Vue разработчик', description: 'Специальность' })
+  @ApiProperty({ example: 'Vue-разработчик', description: 'Специальность' })
   @Prop({ default: '' })
   speciality: string;
 
-  @ApiProperty({ example: '@LinerMVVM', description: 'Ссылка на аккаунт' })
+  @ApiProperty({ example: 'https://t.me/username', description: 'Telegram' })
   @Prop({ default: '' })
   telegram: string;
 
-  @ApiProperty({ example: '@LinerMVVM', description: 'Ссылка на аккаунт' })
+  @ApiProperty({
+    example: 'https://behance.net/username',
+    description: 'Behance',
+  })
   @Prop({ default: '' })
   behance: string;
 
-  @ApiProperty({ example: '@LinerMVVM', description: 'Ссылка на аккаунт' })
+  @ApiProperty({
+    example: 'https://github.com/username',
+    description: 'GitHub / GitLab',
+  })
   @Prop({ default: '' })
   git: string;
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);
-
-export class ChangePasswordDto {
-  @ApiProperty({ example: 'password', description: 'Пароль пользователя' })
-  password: string;
-
-  @ApiProperty({ example: 'new password', description: 'Пароль пользователя' })
-  newPassword: string;
-}

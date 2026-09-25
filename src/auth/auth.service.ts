@@ -1,121 +1,150 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
-import { randomBytes, pbkdf2Sync } from 'crypto';
-import { User, UserDocument } from './schemas/user.schema';
-import { CreateUserDto } from './dto/create-user.dto';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { MailService } from 'src/mail/mail.service';
+import { InjectModel } from '@nestjs/mongoose';
+import { pbkdf2, randomBytes, randomInt, timingSafeEqual } from 'crypto';
+import { Model } from 'mongoose';
+import { promisify } from 'util';
+import { MailService } from '../mail/mail.service';
+import { CreateUserDto } from './dto/create-user.dto';
+import { User } from './schemas/user.schema';
+
+const pbkdf2Async = promisify(pbkdf2);
+
+/** Рекомендация OWASP для PBKDF2-HMAC-SHA512. */
+const HASH_ITERATIONS = 210_000;
+/** С таким числом итераций хешировались пароли до рефакторинга. */
+const LEGACY_HASH_ITERATIONS = 1000;
+const SECRET_FIELDS = '+passwordHash +salt +hash_iterations';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
-    @InjectModel(User.name) private readonly userModel: Model<UserDocument>,
+    @InjectModel(User.name) private readonly userModel: Model<User>,
     private readonly jwtService: JwtService,
-    private readonly mailService: MailService
-  ) { }
+    private readonly mailService: MailService,
+  ) {}
 
-  async registerUser(createUserDto: CreateUserDto): Promise<{ access_token: string }> {
-    let { email, password, name } = createUserDto;
-    email = email.toLowerCase();
-
-    const existingUser = await this.userModel.findOne({ email }).exec();
+  async registerUser({ name, email, password }: CreateUserDto) {
+    const existingUser = await this.userModel.exists({ email });
     if (existingUser) {
-      throw new BadRequestException('Пользователь с такими учётными данными уже существует');
-    }
-    if (!this.checkPassword(password)) {
-      throw new BadRequestException('Пароль должен содержать не менее 8-ми символов, из которых минимум 1 буква и 1 цифра');
+      throw new BadRequestException(
+        'Пользователь с такой почтой уже зарегистрирован',
+      );
     }
 
-    const { salt, hash } = this.hashPassword(password);
-    const verification_token = this.generateVerificationToken();
-
-    const newUser = new this.userModel<Partial<User>>({
-      name,
+    const verification_token = this.generateVerificationCode();
+    const user = await this.userModel.create({
+      name: name.trim(),
       email,
-      passwordHash: hash,
-      salt,
-      is_verified: false, // Новый пользователь не подтверждён
+      ...(await this.hashPassword(password)),
+      is_verified: false,
       verification_token,
     });
-    const user = await newUser.save();
 
-    await this.mailService.sendVerificationEmail(email, verification_token);
+    // Письмо не должно ломать регистрацию: пользователь уже создан,
+    // и ошибка SMTP в ответе оставила бы его в «полусозданном» состоянии.
+    try {
+      await this.mailService.sendVerificationEmail(email, verification_token);
+    } catch (error) {
+      this.logger.error(`Не удалось отправить письмо на ${email}`, error);
+    }
 
-    const access_token = this.generateToken(user.get('id') as string);
-
-    return { access_token };
+    return { access_token: this.generateToken(user.id) };
   }
 
-  async loginUser(email: string, password: string): Promise<{ access_token: string }> {
-    const user = await this.userModel.findOne({ email }).exec();
+  async loginUser(email: string, password: string) {
+    const user = await this.userModel.findOne({ email }).select(SECRET_FIELDS);
+
+    if (!user || !(await this.verifyPassword(password, user))) {
+      throw new BadRequestException('Неверная почта или пароль');
+    }
+
+    // Пароли, захешированные со старым числом итераций, перехешируем
+    // при первом успешном входе — хранить их в прежнем виде не нужно.
+    if ((user.hash_iterations ?? LEGACY_HASH_ITERATIONS) < HASH_ITERATIONS) {
+      user.set(await this.hashPassword(password));
+      await user.save();
+    }
+
+    return { access_token: this.generateToken(user.id) };
+  }
+
+  async verifyUser(email: string, token: string) {
+    const user = await this.userModel.findOneAndUpdate(
+      { email, verification_token: token, is_verified: false },
+      { is_verified: true, $unset: { verification_token: 1 } },
+    );
 
     if (!user) {
-      throw new BadRequestException('Неверный e-mail или пароль');
+      throw new BadRequestException('Неверный код подтверждения');
     }
 
-    const isPasswordValid = this.verifyPassword(password, user.salt, user.passwordHash);
-    if (!isPasswordValid) {
-      throw new BadRequestException('Неверный e-mail или пароль');
-    }
-
-    const access_token = this.generateToken(user.get('id') as string);
-
-    return { access_token };
+    return { access_token: this.generateToken(user.id) };
   }
 
-  async verifyUser(token: string): Promise<{ access_token: string }> {
-    const user = await this.userModel.findOne({ verification_token: token }).exec();
-    if (!user || user.is_verified || !user.verification_token || !token) {
-      throw new BadRequestException('Неверный токен верификации');
-    }
-    await this.userModel.updateOne({ verification_token: token }, { is_verified: true, verification_token: '' });
-    const access_token = this.generateToken(user.get('id') as string);
-    return { access_token };
-  }
-
-  public async changePassword(email: string, password: string, newPassword: string): Promise<{ access_token: string }> {
-    const user = await this.userModel.findOne({ email }).exec();
+  async changePassword(userId: string, password: string, newPassword: string) {
+    const user = await this.userModel.findById(userId).select(SECRET_FIELDS);
     if (!user) {
-      throw new BadRequestException('Неверный e-mail');
+      throw new NotFoundException('Пользователь не найден');
     }
 
-    const isPasswordValid = this.verifyPassword(password, user.salt, user.passwordHash);
-    if (!isPasswordValid) {
-      throw new BadRequestException('Неверный пароль');
+    if (!(await this.verifyPassword(password, user))) {
+      throw new BadRequestException('Текущий пароль указан неверно');
     }
 
-    if (!this.checkPassword(newPassword)) {
-      throw new BadRequestException('Пароль должен содержать не менее 8-ми символов, из которых минимум 1 буква и 1 цифра');
-    }
+    user.set(await this.hashPassword(newPassword));
+    await user.save();
 
-    const { salt, hash } = this.hashPassword(newPassword);
-    await this.userModel.updateOne({ email }, { passwordHash: hash, salt });
-    const access_token = this.generateToken(user.get('id') as string);
-    return { access_token };
+    return { access_token: this.generateToken(user.id) };
   }
 
-  private hashPassword(password: string): { salt: string; hash: string } {
+  private async hashPassword(password: string) {
     const salt = randomBytes(16).toString('hex');
-    const hash = pbkdf2Sync(password, salt, 1000, 64, 'sha512').toString('hex');
-    return { salt, hash };
+    const hash = await pbkdf2Async(
+      password,
+      salt,
+      HASH_ITERATIONS,
+      64,
+      'sha512',
+    );
+    return {
+      salt,
+      passwordHash: hash.toString('hex'),
+      hash_iterations: HASH_ITERATIONS,
+    };
   }
 
-  private verifyPassword(password: string, salt: string, hash: string): boolean {
-    const hashToVerify = pbkdf2Sync(password, salt, 1000, 64, 'sha512').toString('hex');
-    return hash === hashToVerify;
+  private async verifyPassword(
+    password: string,
+    user: Pick<User, 'salt' | 'passwordHash' | 'hash_iterations'>,
+  ) {
+    const iterations = user.hash_iterations ?? LEGACY_HASH_ITERATIONS;
+    const expected = Buffer.from(user.passwordHash, 'hex');
+    const actual = await pbkdf2Async(
+      password,
+      user.salt,
+      iterations,
+      64,
+      'sha512',
+    );
+    return (
+      expected.length === actual.length && timingSafeEqual(expected, actual)
+    );
   }
 
-  private checkPassword(password: string): boolean {
-    const reg = /^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d!"#$%&'()*+,-./:;<=>?@[\]^_`{|}~]{8,}$/;
-    return reg.test(password);
+  /** Шестизначный код из криптографического генератора. */
+  private generateVerificationCode() {
+    return randomInt(100_000, 1_000_000).toString();
   }
 
-  private generateVerificationToken(): string {
-    return Math.floor(Math.random() * 1000000).toString();
-  }
-
-  private generateToken(userId: string): string {
+  private generateToken(userId: string) {
     return this.jwtService.sign({ userId });
   }
 }

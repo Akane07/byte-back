@@ -1,81 +1,69 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { User, UserDocument } from 'src/auth/schemas/user.schema';
 import { Model } from 'mongoose';
-import { AuthService } from 'src/auth/auth.service';
+import { AuthService } from '../auth/auth.service';
+import { User, UserDocument } from '../auth/schemas/user.schema';
+import { UpdateUserDto } from './dto/update-user.dto';
 
 @Injectable()
 export class UserService {
-    constructor(
-        @InjectModel(User.name) private readonly userModel: Model<UserDocument>,
-        private readonly authService: AuthService,
-    ) { }
+  constructor(
+    @InjectModel(User.name) private readonly userModel: Model<User>,
+    private readonly authService: AuthService,
+  ) {}
 
-    async getUser(userId: string, tokenId?: string) {
-        const user = await this.userModel.findById<UserDocument>(userId).exec();
+  /** Свой профиль: все поля, кроме секретных. Заодно отмечает время визита. */
+  async getMe(userId: string) {
+    const user = await this.userModel.findByIdAndUpdate(
+      userId,
+      { last_seen: new Date().toISOString() },
+      { new: true },
+    );
+    return toPrivateUser(this.assertFound(user));
+  }
 
-        if (!user) {
-            throw new NotFoundException("User does not exist");
-        }
-        
-        if (userId === tokenId) {
-            user.last_seen = new Date().toISOString();
-            await user.save();
-        }
+  /** Чужой профиль: без почты и телефона. */
+  async getUser(userId: string) {
+    const user = await this.userModel.findById(userId);
+    return toPublicUser(this.assertFound(user));
+  }
 
-        return this.returnUser(user);
+  async updateUser(
+    userId: string,
+    updateData: UpdateUserDto | { avatar: string },
+  ) {
+    const user = await this.userModel.findByIdAndUpdate(userId, updateData, {
+      new: true,
+      runValidators: true,
+    });
+    return toPrivateUser(this.assertFound(user));
+  }
+
+  async setOrdersCount(userId: string, ordersCount: number) {
+    await this.userModel.updateOne(
+      { _id: userId },
+      { orders_count: ordersCount },
+    );
+  }
+
+  changePassword(userId: string, password: string, newPassword: string) {
+    return this.authService.changePassword(userId, password, newPassword);
+  }
+
+  private assertFound(user: UserDocument | null): UserDocument {
+    if (!user) {
+      throw new NotFoundException('Пользователь не найден');
     }
+    return user;
+  }
+}
 
-    async updateUser(_id: string, updateData: Partial<User>) {
-        if (updateData.passwordHash || updateData.salt || updateData.id
-            || updateData.verification_token || updateData.last_seen || updateData.created_at ||
-            updateData.rating || updateData.orders_count || updateData.reviews_count) {
-            throw new BadRequestException("Невозможно изменить данные пользоватея");
-        }
+function toPrivateUser(user: UserDocument) {
+  const { _id, __v, ...fields } = user.toObject();
+  return { id: _id.toString(), ...fields };
+}
 
-        let user = await this.userModel.findById(_id).exec();
-
-        if (user.id !== _id) {
-            throw new BadRequestException("Невозможно изменить данные пользоватея");
-        }
-
-        if (updateData.email) {
-        } else {
-            user = await this.userModel.findByIdAndUpdate(_id, updateData, { new: true });
-        }
-
-        if (!user) {
-            throw new BadRequestException("Пользователя не существует");
-        }
-
-        return this.returnUser(user);
-    }
-
-    async patchUserOrdersCount(userId: string, ordersCount: number) {
-        const user = await this.userModel.findById<UserDocument>(userId).exec();
-        user.orders_count = ordersCount;
-        await user.save();
-    }
-
-    async changePassword(userId: string, password: string, newPassword: string) {
-        const user = await this.userModel.findById(userId).exec();
-        const { access_token } = await this.authService.changePassword(user.email, password, newPassword);
-        return access_token;
-    }
-
-    private returnUser(user: any) {
-        const {
-            __v,
-            _id,
-            passwordHash,
-            salt,
-            verificationToken,
-            ...result
-        } = user._doc;
-
-        return {
-            id: user._id,
-            ...result
-        };
-    }
+function toPublicUser(user: UserDocument) {
+  const { email, phone, ...fields } = toPrivateUser(user);
+  return fields;
 }

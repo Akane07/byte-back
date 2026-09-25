@@ -1,45 +1,48 @@
-import { Controller, Post, Body } from '@nestjs/common';
+import { Body, Controller, HttpCode, Post } from '@nestjs/common';
+import { ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
-import { AccessToken, CreateUserDto, LoginUserDto, VerifyUserDto } from './dto/create-user.dto';
-import { ApiBody, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import {
+  AccessToken,
+  CreateUserDto,
+  LoginUserDto,
+  VerifyUserDto,
+} from './dto/create-user.dto';
 
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Post('register')
-  @ApiOperation({ summary: 'Регистрация', description: 'Регистрирует пользователя и возвращает токен.' })
-  @ApiBody({ 
-    type: CreateUserDto, 
-    description: 'Данные нового пользователя', 
-    required: true 
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Регистрация',
+    description:
+      'Создаёт пользователя, отправляет код на почту и возвращает токен.',
   })
   @ApiResponse({ status: 200, description: 'Токен', type: AccessToken })
-  async register(@Body() createUserDto: CreateUserDto) {
-    return this.authService.registerUser(createUserDto);
+  register(@Body() dto: CreateUserDto) {
+    return this.authService.registerUser(dto);
   }
 
-  @ApiOperation({ summary: 'Вход', description: 'Авторизует пользователя и возвращает токен.' })
-  @ApiBody({ 
-    type: LoginUserDto, 
-    description: 'Данные пользователя', 
-    required: true 
-  })
-  @ApiResponse({ status: 200, description: 'Токен', type: AccessToken })
   @Post('login')
-  async login(@Body() createUserDto: { email: string; password: string }) {
-    return this.authService.loginUser(createUserDto.email, createUserDto.password);
-  }
-
-  @ApiOperation({ summary: 'Подтверждение кода', description: 'Подтверждает пользователя и возвращает токен.' })
-  @ApiBody({ 
-    type: VerifyUserDto, 
-    description: 'Токен пользователя', 
-    required: true 
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Вход',
+    description: 'Проверяет пароль и возвращает токен.',
   })
   @ApiResponse({ status: 200, description: 'Токен', type: AccessToken })
+  login(@Body() dto: LoginUserDto) {
+    return this.authService.loginUser(dto.email, dto.password);
+  }
+
   @Post('verify')
-  async verify(@Body() token: { token: string }) {
-    return this.authService.verifyUser(token.token);
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Подтверждение почты',
+    description: 'Подтверждает почту кодом из письма и возвращает токен.',
+  })
+  @ApiResponse({ status: 200, description: 'Токен', type: AccessToken })
+  verify(@Body() dto: VerifyUserDto) {
+    return this.authService.verifyUser(dto.email, dto.token);
   }
 }
