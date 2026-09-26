@@ -25,6 +25,21 @@ export class User {
   @Prop({ select: false })
   verification_token?: string;
 
+  /** SHA-256 кода восстановления пароля: сам код в базе не хранится. */
+  @Prop({ select: false })
+  reset_code?: string;
+
+  @Prop({ select: false })
+  reset_expires?: Date;
+
+  /** Неверные попытки ввода кода восстановления. */
+  @Prop({ select: false })
+  reset_attempts?: number;
+
+  /** Когда отправлено последнее письмо с кодом — для паузы между письмами. */
+  @Prop({ select: false })
+  code_sent_at?: Date;
+
   @ApiProperty({ example: 'Иван Петров', description: 'Имя' })
   @Prop({ default: '' })
   name: string;

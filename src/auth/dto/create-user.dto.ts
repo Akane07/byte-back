@@ -1,8 +1,9 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import {
   IsEmail,
   IsNotEmpty,
+  IsOptional,
   IsString,
   Matches,
   MaxLength,
@@ -18,11 +19,14 @@ const normalizeEmail = ({ value }: { value: unknown }) =>
   typeof value === 'string' ? value.trim().toLowerCase() : value;
 
 export class CreateUserDto {
-  @ApiProperty({ example: 'Иван Петров', description: 'Имя пользователя' })
+  @ApiPropertyOptional({
+    example: 'Иван Петров',
+    description: 'Имя. Если не указано — берётся часть почты до @',
+  })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty({ message: 'Укажите имя' })
   @MaxLength(100)
-  readonly name: string;
+  readonly name?: string;
 
   @ApiProperty({ example: 'ivan@example.com', description: 'Почта' })
   @Transform(normalizeEmail)
@@ -69,6 +73,26 @@ export class ChangePasswordDto {
   @IsString()
   @Matches(PASSWORD_REGEX, { message: PASSWORD_MESSAGE })
   readonly newPassword: string;
+}
+
+export class RecoveryRequestDto {
+  @ApiProperty({ example: 'ivan@example.com', description: 'Почта' })
+  @Transform(normalizeEmail)
+  @IsEmail({}, { message: 'Некорректный адрес почты' })
+  readonly email: string;
+}
+
+export class RecoveryCodeDto extends RecoveryRequestDto {
+  @ApiProperty({ example: '123456', description: 'Код из письма' })
+  @Matches(/^\d{6}$/, { message: 'Код состоит из 6 цифр' })
+  readonly code: string;
+}
+
+export class ResetPasswordDto extends RecoveryCodeDto {
+  @ApiProperty({ example: 'newPassword123', description: 'Новый пароль' })
+  @IsString()
+  @Matches(PASSWORD_REGEX, { message: PASSWORD_MESSAGE })
+  readonly password: string;
 }
 
 export class AccessToken {
