@@ -10,7 +10,8 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiResponse } from '@nestjs/swagger';
-import { UserId } from '../auth/current-user.decorator';
+import { OptionalUserId, UserId } from '../auth/current-user.decorator';
+import { OptionalJwtAuthGuard } from '../auth/optional-jwt-auth.guard';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ParseObjectIdPipe } from '../common/parse-object-id.pipe';
 import {
@@ -22,22 +23,30 @@ import {
 import { OrderService } from './order.service';
 import { Order, OrderResponse } from './schemas/order.schema';
 
+// Гарды — на каждом методе, а не на классе: гард класса выполняется всегда,
+// и открыть отдельные методы гостю было бы нельзя. Лента, заказ и заказы
+// пользователя доступны без входа (OptionalJwtAuthGuard), остальное — только
+// с токеном.
 @Controller('order')
-@UseGuards(JwtAuthGuard)
 @ApiBearerAuth()
 export class OrderController {
   constructor(private readonly orderService: OrderService) {}
 
   @Get()
+  @UseGuards(OptionalJwtAuthGuard)
   @ApiOperation({
     summary: 'Лента заказов',
     description: 'Чужие опубликованные заказы, по 10 на страницу',
   })
-  getOrderList(@UserId() userId: string, @Query() query: OrderListQueryDto) {
+  getOrderList(
+    @OptionalUserId() userId: string | undefined,
+    @Query() query: OrderListQueryDto,
+  ) {
     return this.orderService.getOrderList(userId, query.page, query.categories);
   }
 
   @Post()
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Создать заказ или черновик' })
   @ApiResponse({ status: 201, type: Order })
   createOrder(@UserId() userId: string, @Body() dto: CreateOrderDto) {
@@ -46,12 +55,14 @@ export class OrderController {
 
   // POST, а не GET — так исторически вызывает фронтенд.
   @Post('responses')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Свои отклики на все заказы' })
   getUserResponses(@UserId() userId: string) {
     return this.orderService.getUserResponses(userId);
   }
 
   @Get('user/:id')
+  @UseGuards(OptionalJwtAuthGuard)
   @ApiOperation({ summary: 'Опубликованные заказы пользователя' })
   @ApiResponse({ status: 200, type: [Order] })
   getUserOrders(@Param('id', ParseObjectIdPipe) id: string) {
@@ -59,6 +70,7 @@ export class OrderController {
   }
 
   @Get('user/:id/drafts')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Свои черновики' })
   @ApiResponse({ status: 200, type: [Order] })
   getUserDrafts(
@@ -69,13 +81,18 @@ export class OrderController {
   }
 
   @Get(':id')
+  @UseGuards(OptionalJwtAuthGuard)
   @ApiOperation({ summary: 'Заказ по id' })
   @ApiResponse({ status: 200, type: Order })
-  getOrder(@Param('id', ParseObjectIdPipe) id: string) {
-    return this.orderService.getOrder(id);
+  getOrder(
+    @OptionalUserId() userId: string | undefined,
+    @Param('id', ParseObjectIdPipe) id: string,
+  ) {
+    return this.orderService.getOrder(id, userId);
   }
 
   @Patch(':id')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Изменить свой заказ' })
   @ApiResponse({ status: 200, type: Order })
   updateOrder(
@@ -87,6 +104,7 @@ export class OrderController {
   }
 
   @Patch(':id/archive')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Отправить свой заказ в архив' })
   @ApiResponse({ status: 200, type: Order })
   archiveOrder(
@@ -97,6 +115,7 @@ export class OrderController {
   }
 
   @Delete(':id')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Удалить свой заказ вместе с откликами' })
   deleteOrder(
     @UserId() userId: string,
@@ -106,6 +125,7 @@ export class OrderController {
   }
 
   @Post(':id/viewed')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Отметить заказ просмотренным' })
   viewOrder(
     @UserId() userId: string,
@@ -115,6 +135,7 @@ export class OrderController {
   }
 
   @Post(':id/response')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Откликнуться на заказ' })
   @ApiResponse({ status: 201, type: OrderResponse })
   createOrderResponse(
@@ -126,6 +147,7 @@ export class OrderController {
   }
 
   @Get(':id/responses')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Отклики на свой заказ' })
   @ApiResponse({ status: 200, type: [OrderResponse] })
   getOrderResponses(
@@ -136,6 +158,7 @@ export class OrderController {
   }
 
   @Get(':id/response')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Свой отклик на заказ (null, если не откликались)' })
   @ApiResponse({ status: 200, type: OrderResponse })
   getOrderResponse(
@@ -146,6 +169,7 @@ export class OrderController {
   }
 
   @Get(':id/response/:rid')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Отклик по id — автору и владельцу заказа' })
   @ApiResponse({ status: 200, type: OrderResponse })
   getOrderResponseById(
@@ -156,6 +180,7 @@ export class OrderController {
   }
 
   @Patch(':id/response/:rid')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Изменить свой отклик' })
   @ApiResponse({ status: 200, type: OrderResponse })
   editOrderResponse(
@@ -167,6 +192,7 @@ export class OrderController {
   }
 
   @Delete(':id/response/:rid')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Удалить свой отклик' })
   deleteOrderResponse(
     @UserId() userId: string,

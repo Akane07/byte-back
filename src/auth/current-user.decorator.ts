@@ -8,3 +8,11 @@ export const UserId = createParamDecorator(
     return request.user.userId;
   },
 );
+
+/** id пользователя, если он вошёл, иначе undefined. Вместе с OptionalJwtAuthGuard. */
+export const OptionalUserId = createParamDecorator(
+  (_data: unknown, ctx: ExecutionContext): string | undefined => {
+    const request = ctx.switchToHttp().getRequest<{ user?: JwtPayload }>();
+    return request.user?.userId;
+  },
+);

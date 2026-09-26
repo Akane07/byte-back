@@ -82,7 +82,7 @@ export class ChatGateway implements OnGatewayConnection {
     if (dto.is_suggest) {
       if (!dto.orderId)
         throw new WsException('Не указан заказ для предложения');
-      const order = await this.orderService.getOrder(dto.orderId);
+      const order = await this.orderService.getOrder(dto.orderId, senderId);
       if (order.user_id !== senderId || order.performer || order.draft) {
         throw new WsException('Этот заказ нельзя предложить');
       }

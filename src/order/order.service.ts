@@ -27,9 +27,14 @@ export class OrderService {
   ) {}
 
   /** Лента: чужие опубликованные заказы без исполнителя. */
-  async getOrderList(userId: string, page: number, categories?: number[]) {
+  /** Лента. userId нет у гостя — тогда в ленте все заказы, свои исключать не из чего. */
+  async getOrderList(
+    userId: string | undefined,
+    page: number,
+    categories?: number[],
+  ) {
     const filter: FilterQuery<Order> = {
-      user_id: { $ne: userId },
+      ...(userId && { user_id: { $ne: userId } }),
       draft: { $ne: true },
       is_active: { $ne: false },
       performer: { $exists: false },
@@ -55,8 +60,13 @@ export class OrderService {
     };
   }
 
-  async getOrder(id: string) {
-    return this.findOrder(id);
+  /** Черновик виден только автору — раньше любой мог открыть чужой по id. */
+  async getOrder(id: string, userId?: string) {
+    const order = await this.findOrder(id);
+    if (order.draft && order.user_id !== userId) {
+      throw new NotFoundException('Заказ не найден');
+    }
+    return order;
   }
 
   getUserOrders(userId: string) {
