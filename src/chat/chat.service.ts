@@ -94,6 +94,14 @@ export class ChatService {
             $switch: {
               branches: [
                 { case: { $eq: ['$is_delivery', true] }, then: 'Работа сдана' },
+                {
+                  case: { $eq: ['$is_suggest', true] },
+                  then: 'Предложение заказа',
+                },
+                {
+                  case: { $ne: [{ $ifNull: ['$responseId', null] }, null] },
+                  then: 'Отклик на заказ',
+                },
                 { case: { $eq: ['$mediaType', 'video'] }, then: 'Видео' },
                 {
                   case: {
@@ -131,7 +139,15 @@ export class ChatService {
           _id: '$otherUserId',
           lastMessage: { $first: '$displayText' },
           lastMessageDate: { $first: '$createdAt' },
-          lastMessageMine: { $first: { $eq: ['$senderId', userId] } },
+          // Служебное сообщение («Предложение принято…») — ничьё, без «Вы:».
+          lastMessageMine: {
+            $first: {
+              $and: [
+                { $eq: ['$senderId', userId] },
+                { $ne: ['$status', 'server'] },
+              ],
+            },
+          },
           isRead: { $first: '$isRead' },
           unreadCount: { $sum: { $cond: ['$isUnread', 1, 0] } },
         },
