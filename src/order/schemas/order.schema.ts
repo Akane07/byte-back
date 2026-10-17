@@ -22,6 +22,10 @@ export const ORDER_STATUSES = [
   'cancelled',
 ] as const;
 
+/** remote — работа через интернет, onsite — на месте у заказчика. */
+export const WORK_FORMATS = ['remote', 'onsite'] as const;
+
+export type WorkFormat = (typeof WORK_FORMATS)[number];
 export type PriceType = (typeof PRICE_TYPES)[number];
 export type OrderType = (typeof ORDER_TYPES)[number];
 export type Deadline = (typeof DEADLINES)[number];
@@ -110,6 +114,34 @@ export class Order {
   @ApiProperty({ example: 1, description: 'ID категории' })
   @Prop()
   category?: number;
+
+  @ApiProperty({
+    example: 'remote',
+    enum: WORK_FORMATS,
+    description: 'Где выполняется работа: удалённо или на месте',
+  })
+  @Prop({ enum: WORK_FORMATS, default: 'remote', index: true })
+  work_format: WorkFormat;
+
+  @ApiProperty({
+    required: false,
+    example: 'Казань',
+    description: 'Город — для заказов на месте',
+  })
+  @Prop({ index: true })
+  city?: string;
+
+  /**
+   * Точный адрес. Виден только заказчику и выбранному исполнителю — всем
+   * остальным API отдаёт заказ без него (см. OrderService.forViewer).
+   */
+  @ApiProperty({ required: false, example: 'ул. Баумана, 12' })
+  @Prop()
+  address?: string;
+
+  @ApiProperty({ example: false, description: 'Срочный заказ' })
+  @Prop({ default: false })
+  urgent: boolean;
 
   @ApiProperty({ example: 10, description: 'Количество откликов' })
   @Prop({ default: 0, min: 0 })

@@ -6,8 +6,13 @@ import {
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { FilterQuery, Model } from 'mongoose';
+import { escapeRegExp } from '../common/escape-regexp';
 import { UserService } from '../user/user.service';
-import { CreateOrderDto, UpdateOrderDto } from './dto/create-order.dto';
+import {
+  CreateOrderDto,
+  OrderListQueryDto,
+  UpdateOrderDto,
+} from './dto/create-order.dto';
 import {
   Order,
   OrderDocument,
@@ -26,35 +31,62 @@ export class OrderService {
     private readonly userService: UserService,
   ) {}
 
-  /** Лента: чужие опубликованные заказы без исполнителя. */
-  /** Лента. userId нет у гостя — тогда в ленте все заказы, свои исключать не из чего. */
-  async getOrderList(
-    userId: string | undefined,
-    page: number,
-    categories?: number[],
-  ) {
-    const filter: FilterQuery<Order> = {
-      ...(userId && { user_id: { $ne: userId } }),
-      draft: { $ne: true },
-      is_active: { $ne: false },
-      performer: { $exists: false },
-      status: { $nin: ['completed', 'cancelled'] },
-    };
+  /**
+   * Лента: чужие опубликованные заказы без исполнителя. userId нет у гостя —
+   * тогда в ленте все заказы, свои исключать не из чего.
+   */
+  async getOrderList(userId: string | undefined, query: OrderListQueryDto) {
+    const { page, categories, format, city, q, urgent } = query;
+    const conditions: FilterQuery<Order>[] = [
+      {
+        ...(userId && { user_id: { $ne: userId } }),
+        draft: { $ne: true },
+        is_active: { $ne: false },
+        performer: { $exists: false },
+        status: { $nin: ['completed', 'cancelled'] },
+      },
+    ];
+
     if (categories?.length) {
-      filter.category = { $in: categories };
+      conditions.push({ category: { $in: categories } });
+    }
+    if (urgent) {
+      conditions.push({ urgent: true });
+    }
+    // У старых заказов поля work_format нет — они удалённые.
+    if (format === 'onsite') {
+      conditions.push({ work_format: 'onsite' });
+    } else if (format === 'remote') {
+      conditions.push({ work_format: { $ne: 'onsite' } });
+    }
+    // Город отсекает только заказы на месте: удалённую работу можно
+    // делать из любого города, поэтому она остаётся в ленте.
+    if (city) {
+      conditions.push({
+        $or: [{ work_format: { $ne: 'onsite' } }, { city }],
+      });
+    }
+    const search = q?.trim();
+    if (search) {
+      const re = new RegExp(escapeRegExp(search), 'i');
+      conditions.push({
+        $or: [{ title: re }, { description: re }, { skills: re }],
+      });
     }
 
+    const filter: FilterQuery<Order> = { $and: conditions };
     const [orders, total] = await Promise.all([
       this.orderModel
         .find(filter)
-        .sort({ created_at: -1 })
+        // Срочные — выше, внутри — от новых к старым.
+        .sort({ urgent: -1, created_at: -1 })
         .skip((page - 1) * PAGE_SIZE)
         .limit(PAGE_SIZE),
       this.orderModel.countDocuments(filter),
     ]);
 
     return {
-      orders,
+      orders: orders.map((order) => forViewer(order, userId)),
       totalPages: Math.max(1, Math.ceil(total / PAGE_SIZE)),
       currentPage: page,
     };
@@ -69,10 +101,16 @@ export class OrderService {
     return order;
   }
 
-  getUserOrders(userId: string) {
-    return this.orderModel
-      .find({ user_id: userId, draft: { $ne: true } })
+  /** Заказ для показа пользователю: без адреса, если смотрит посторонний. */
+  async getOrderForViewer(id: string, userId?: string) {
+    return forViewer(await this.getOrder(id, userId), userId);
+  }
+
+  async getUserOrders(ownerId: string, viewerId?: string) {
+    const orders = await this.orderModel
+      .find({ user_id: ownerId, draft: { $ne: true } })
       .sort({ created_at: -1 });
+    return orders.map((order) => forViewer(order, viewerId));
   }
 
   getUserDrafts(ownerId: string, userId: string) {
@@ -85,7 +123,9 @@ export class OrderService {
   }
 
   async createOrder(userId: string, dto: CreateOrderDto) {
-    const order = await this.orderModel.create({ ...dto, user_id: userId });
+    const order = new this.orderModel({ ...dto, user_id: userId });
+    normalizeLocation(order);
+    await order.save();
     await this.syncOrdersCount(userId);
     return order;
   }
@@ -97,6 +137,7 @@ export class OrderService {
     // каждом редактировании — иначе любая правка поднимала заказ в ленте.
     const publishing = order.draft && dto.draft === false;
     order.set(dto);
+    normalizeLocation(order);
     if (publishing) {
       order.created_at = new Date();
     }
@@ -377,4 +418,38 @@ export class OrderService {
     });
     await this.userService.setOrdersCount(userId, count);
   }
+}
+
+/**
+ * Город и адрес нужны только заказу на месте. У удалённого их стираем,
+ * чтобы после смены формата в базе не оставался чужой адрес. Опубликовать
+ * заказ на месте без города нельзя — исполнители не поймут, куда ехать;
+ * в черновике город можно указать позже.
+ */
+function normalizeLocation(order: OrderDocument) {
+  if (order.work_format !== 'onsite') {
+    order.city = undefined;
+    order.address = undefined;
+    return;
+  }
+  if (order.address !== undefined) {
+    order.address = order.address.trim() || undefined;
+  }
+  if (!order.city && !order.draft) {
+    throw new BadRequestException('Укажите город, где нужно выполнить заказ');
+  }
+}
+
+/**
+ * Точный адрес видят только заказчик и выбранный исполнитель. Остальным
+ * хватит города: адрес квартиры в открытой ленте — подарок мошенникам.
+ */
+export function forViewer(order: OrderDocument, viewerId?: string) {
+  const json = order.toJSON() as unknown as Order & { id: string };
+  const insider =
+    !!viewerId && (viewerId === order.user_id || viewerId === order.performer);
+  if (!insider) {
+    delete json.address;
+  }
+  return json;
 }

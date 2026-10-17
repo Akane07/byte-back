@@ -36,13 +36,15 @@ export class OrderController {
   @UseGuards(OptionalJwtAuthGuard)
   @ApiOperation({
     summary: 'Лента заказов',
-    description: 'Чужие опубликованные заказы, по 10 на страницу',
+    description:
+      'Чужие опубликованные заказы, по 10 на страницу. Фильтры: категории, ' +
+      'формат (удалённо / на месте), город, поиск, только срочные',
   })
   getOrderList(
     @OptionalUserId() userId: string | undefined,
     @Query() query: OrderListQueryDto,
   ) {
-    return this.orderService.getOrderList(userId, query.page, query.categories);
+    return this.orderService.getOrderList(userId, query);
   }
 
   @Post()
@@ -65,8 +67,11 @@ export class OrderController {
   @UseGuards(OptionalJwtAuthGuard)
   @ApiOperation({ summary: 'Опубликованные заказы пользователя' })
   @ApiResponse({ status: 200, type: [Order] })
-  getUserOrders(@Param('id', ParseObjectIdPipe) id: string) {
-    return this.orderService.getUserOrders(id);
+  getUserOrders(
+    @OptionalUserId() userId: string | undefined,
+    @Param('id', ParseObjectIdPipe) id: string,
+  ) {
+    return this.orderService.getUserOrders(id, userId);
   }
 
   @Get('user/:id/drafts')
@@ -88,7 +93,7 @@ export class OrderController {
     @OptionalUserId() userId: string | undefined,
     @Param('id', ParseObjectIdPipe) id: string,
   ) {
-    return this.orderService.getOrder(id, userId);
+    return this.orderService.getOrderForViewer(id, userId);
   }
 
   @Patch(':id')

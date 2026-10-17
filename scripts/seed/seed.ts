@@ -128,6 +128,11 @@ async function seed() {
       behance: u.behance ?? '',
       git: u.git ?? '',
       skills: u.skills ?? [],
+      city: u.city ?? '',
+      is_performer: !!u.performer,
+      work_format: u.performer?.format ?? 'remote',
+      categories: u.performer?.categories ?? [],
+      price_from: u.performer?.priceFrom,
       avatar: u.avatar === undefined ? '' : saveUpload('avatars', `${u.key}.png`, avatar(u.avatar)),
       is_verified: !!u.verified,
       created_at: ago(u.registeredDaysAgo * DAY),
@@ -195,6 +200,10 @@ async function seed() {
         to: new Date(created.getTime() + o.customDays[1] * DAY).toISOString(),
       },
       for_experts: !!o.for_experts,
+      work_format: o.onsite ? 'onsite' : 'remote',
+      city: o.onsite?.city,
+      address: o.onsite?.address,
+      urgent: !!o.urgent,
       skills: o.skills,
       draft: state === 'draft',
       is_active: state !== 'archived',
@@ -234,13 +243,23 @@ async function seed() {
           order.status = state === 'completed' ? 'completed' : 'pending';
           await order.save();
           if (state === 'completed') {
+            // Как на сайте: исполнитель сдал работу, заказчик её принял.
+            const deliveredAt = new Date(answeredAt.getTime() + 3 * DAY);
             await message({
               senderId: id[r.from],
               receiverId: id[o.owner],
-              text: 'Заказ выполнен и готов к проверке.',
-              status: 'server',
+              text: 'Готово, все материалы отправил выше.',
+              is_delivery: true,
+              status: 'accepted',
               orderId,
-              createdAt: new Date(answeredAt.getTime() + 3 * DAY),
+              createdAt: deliveredAt,
+            });
+            await message({
+              senderId: id[r.from],
+              receiverId: id[o.owner],
+              text: `Работа по заказу «${o.title}» принята. Заказ завершён.`,
+              status: 'server',
+              createdAt: new Date(deliveredAt.getTime() + 2 * HOUR),
             });
           }
         }
@@ -254,7 +273,7 @@ async function seed() {
     const msg = await message({
       senderId: id[s.from],
       receiverId: id[s.to],
-      text: '',
+      text: 'Предложение заказа',
       is_suggest: true,
       orderId: orderIdByTitle[s.order],
       isRead: s.outcome !== 'pending',
