@@ -39,6 +39,14 @@ export class UserService {
     return toPrivateUser(this.assertFound(user));
   }
 
+  /** Время последнего визита — при входе в чат и выходе из него. */
+  async touchLastSeen(userId: string) {
+    await this.userModel.updateOne(
+      { _id: userId },
+      { last_seen: new Date().toISOString() },
+    );
+  }
+
   async setOrdersCount(userId: string, ordersCount: number) {
     await this.userModel.updateOne(
       { _id: userId },

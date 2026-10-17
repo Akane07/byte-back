@@ -298,13 +298,36 @@ export class OrderService {
     return order;
   }
 
-  /** Исполнитель сообщает, что работа выполнена. */
-  async completeOrder(orderId: string, performerId: string) {
+  /** Исполнитель сдаёт работу: заказ уходит на проверку заказчику. */
+  async submitWork(orderId: string, performerId: string) {
     const order = await this.findOrder(orderId);
     if (order.performer !== performerId) {
-      throw new ForbiddenException('Завершить заказ может только исполнитель');
+      throw new ForbiddenException('Сдать работу может только исполнитель');
     }
-    order.status = 'completed';
+    if (order.status === 'review') {
+      throw new BadRequestException('Работа уже на проверке у заказчика');
+    }
+    if (order.status !== 'pending') {
+      throw new BadRequestException('Заказ не в работе');
+    }
+    order.status = 'review';
+    await order.save();
+    return order;
+  }
+
+  /**
+   * Ответ заказчика на сданную работу: принять (заказ завершён)
+   * или вернуть на доработку (снова в работе).
+   */
+  async reviewWork(orderId: string, customerId: string, accepted: boolean) {
+    const order = await this.findOrder(orderId);
+    if (order.user_id !== customerId) {
+      throw new ForbiddenException('Принять работу может только заказчик');
+    }
+    if (order.status !== 'review') {
+      throw new BadRequestException('Работа по заказу не на проверке');
+    }
+    order.status = accepted ? 'completed' : 'pending';
     await order.save();
     return order;
   }

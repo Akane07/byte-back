@@ -12,9 +12,12 @@ export const DEADLINES = [
   'contract',
   'custom',
 ] as const;
+// active — ищет исполнителя, pending — в работе, review — работа сдана
+// и ждёт проверки заказчиком, completed — заказчик принял работу.
 export const ORDER_STATUSES = [
   'active',
   'pending',
+  'review',
   'completed',
   'cancelled',
 ] as const;

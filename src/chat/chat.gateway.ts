@@ -4,6 +4,7 @@ import {
   ConnectedSocket,
   MessageBody,
   OnGatewayConnection,
+  OnGatewayDisconnect,
   SubscribeMessage,
   WebSocketGateway,
   WebSocketServer,
@@ -15,15 +16,22 @@ import { OrderService } from '../order/order.service';
 import { UserService } from '../user/user.service';
 import { ChatService } from './chat.service';
 import {
+  EditMessageDto,
   FinishOrderDto,
   MessageActionDto,
+  PartnerDto,
   PostResponseDto,
+  PresenceQueryDto,
   SendMessageDto,
 } from './dto/chat-events.dto';
 import { Message, MessageDocument } from './schemas/chat.schema';
 import { WsExceptionFilter } from './ws-exception.filter';
 
-type AuthedSocket = Socket & { data: { userId: string } };
+type AuthedSocket = Socket & { data: { userId: string; sent?: number[] } };
+
+/** Не больше RATE_LIMIT сообщений за RATE_WINDOW_MS с одного соединения. */
+const RATE_LIMIT = 20;
+const RATE_WINDOW_MS = 10_000;
 
 /**
  * Чат в реальном времени. Работает на том же порту, что и HTTP API.
@@ -31,6 +39,9 @@ type AuthedSocket = Socket & { data: { userId: string } };
  * При подключении клиент передаёт JWT в handshake.auth.token. Шлюз проверяет
  * его и сам помещает клиента в комнату с его id — подписаться на чужую
  * комнату нельзя. Отправитель во всех событиях берётся из токена.
+ *
+ * Комната пользователя — это все его вкладки и устройства. Пока в ней есть
+ * хоть одно соединение, пользователь «в сети».
  */
 @WebSocketGateway()
 @UseFilters(new WsExceptionFilter())
@@ -44,7 +55,7 @@ type AuthedSocket = Socket & { data: { userId: string } };
       ),
   }),
 )
-export class ChatGateway implements OnGatewayConnection {
+export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   private readonly logger = new Logger(ChatGateway.name);
 
   @WebSocketServer() server: Server;
@@ -58,17 +69,45 @@ export class ChatGateway implements OnGatewayConnection {
 
   async handleConnection(client: Socket) {
     const token = client.handshake.auth?.token;
+    let userId: string;
     try {
       const payload = await this.jwtService.verifyAsync<JwtPayload>(token);
-      client.data.userId = payload.userId;
-      await client.join(payload.userId);
+      userId = payload.userId;
     } catch {
       this.logger.debug(
         `Отклонено подключение без валидного токена: ${client.id}`,
       );
       client.emit('exception', { message: 'Требуется авторизация' });
       client.disconnect(true);
+      return;
     }
+
+    client.data.userId = userId;
+    await client.join(userId);
+
+    // Первое соединение пользователя — сообщаем остальным, что он в сети.
+    if (this.connectionsOf(userId) === 1) {
+      client.broadcast.emit('presence', { userId, online: true });
+    }
+    await this.userService.touchLastSeen(userId).catch(() => undefined);
+  }
+
+  async handleDisconnect(client: Socket) {
+    const userId: string | undefined = client.data.userId;
+    // К моменту disconnect сокет уже вышел из комнат.
+    if (!userId || this.connectionsOf(userId) > 0) return;
+
+    const lastSeen = new Date().toISOString();
+    await this.userService.touchLastSeen(userId).catch(() => undefined);
+    this.server.emit('presence', { userId, online: false, lastSeen });
+  }
+
+  /** Кто из перечисленных пользователей сейчас в сети. Ответ — через ack. */
+  @SubscribeMessage('getPresence')
+  handleGetPresence(@MessageBody() dto: PresenceQueryDto) {
+    return {
+      online: dto.userIds.filter((id) => this.connectionsOf(id) > 0),
+    };
   }
 
   @SubscribeMessage('sendMessage')
@@ -77,6 +116,19 @@ export class ChatGateway implements OnGatewayConnection {
     @MessageBody() dto: SendMessageDto,
   ) {
     const senderId = client.data.userId;
+    this.assertRate(client);
+
+    if (dto.receiverId === senderId) {
+      throw new WsException('Нельзя написать самому себе');
+    }
+    // Проверяем, что собеседник существует: иначе сообщения уходили
+    // «в никуда» и висели в базе без диалога.
+    await this.userService.getUser(dto.receiverId);
+
+    const text = dto.text.trim();
+    if (!text && !dto.mediaUrl && !dto.is_suggest) {
+      throw new WsException('Пустое сообщение');
+    }
 
     // Предложить можно только свой активный заказ без исполнителя.
     if (dto.is_suggest) {
@@ -88,14 +140,46 @@ export class ChatGateway implements OnGatewayConnection {
       }
     }
 
-    return this.send({
-      senderId,
-      receiverId: dto.receiverId,
-      text: dto.text,
-      mediaUrl: dto.mediaUrl,
-      mediaType: dto.mediaUrl ? dto.mediaType : 'none',
-      is_suggest: dto.is_suggest,
-      orderId: dto.is_suggest ? dto.orderId : undefined,
+    const replyTo = dto.replyToId
+      ? await this.chatService.replySnapshot(
+          dto.replyToId,
+          senderId,
+          dto.receiverId,
+        )
+      : undefined;
+
+    const mediaType = dto.mediaUrl ? dto.mediaType : 'none';
+    return this.send(
+      {
+        senderId,
+        receiverId: dto.receiverId,
+        text,
+        mediaUrl: dto.mediaUrl,
+        mediaType,
+        fileName: mediaType === 'file' ? dto.fileName : undefined,
+        fileSize: mediaType === 'file' ? dto.fileSize : undefined,
+        replyTo,
+        is_suggest: dto.is_suggest,
+        orderId: dto.is_suggest ? dto.orderId : undefined,
+      },
+      dto.clientId,
+    );
+  }
+
+  @SubscribeMessage('editMessage')
+  async handleEditMessage(
+    @ConnectedSocket() client: AuthedSocket,
+    @MessageBody() dto: EditMessageDto,
+  ) {
+    const message = await this.chatService.editMessage(
+      dto.messageId,
+      client.data.userId,
+      dto.text,
+    );
+    this.emitToBoth(message, 'messageEdited', {
+      messageId: message.id,
+      text: message.text,
+      editedAt: message.editedAt,
     });
   }
 
@@ -111,25 +195,68 @@ export class ChatGateway implements OnGatewayConnection {
     this.emitToBoth(message, 'messageDeleted', { messageId: dto.messageId });
   }
 
+  /** Отметить прочитанной переписку с собеседником. */
+  @SubscribeMessage('markRead')
+  async handleMarkRead(
+    @ConnectedSocket() client: AuthedSocket,
+    @MessageBody() dto: PartnerDto,
+  ) {
+    const readerId = client.data.userId;
+    const count = await this.chatService.markRead(readerId, dto.userId);
+    // Читателю тоже: в других его вкладках обнулится счётчик непрочитанных.
+    if (count > 0) {
+      this.server
+        .to([readerId, dto.userId])
+        .emit('messagesRead', { readerId, partnerId: dto.userId });
+    }
+  }
+
+  /** «Печатает…»: пересылаем собеседнику, в базу не пишем. */
+  @SubscribeMessage('typing')
+  handleTyping(
+    @ConnectedSocket() client: AuthedSocket,
+    @MessageBody() dto: PartnerDto,
+  ) {
+    if (dto.userId === client.data.userId) return;
+    this.server.to(dto.userId).emit('typing', { userId: client.data.userId });
+  }
+
   /**
-   * Принять предложение заказа или отклик. Принимает получатель сообщения:
+   * Принять предложение заказа, отклик или сданную работу. Принимает
+   * получатель сообщения:
    * - предложение (is_suggest): заказчик → исполнитель, исполнитель — получатель;
-   * - отклик (status = response): исполнитель → заказчик, исполнитель — отправитель.
+   * - отклик (status = response): исполнитель → заказчик, исполнитель — отправитель;
+   * - сдача работы (is_delivery): исполнитель → заказчик, заказ завершается.
    */
   @SubscribeMessage('acceptMessage')
   async handleAcceptMessage(
     @ConnectedSocket() client: AuthedSocket,
     @MessageBody() dto: MessageActionDto,
   ) {
-    const message = await this.findPendingOffer(
-      dto.messageId,
-      client.data.userId,
-    );
+    const actorId = client.data.userId;
+    const message = await this.findPendingOffer(dto.messageId, actorId);
+
+    if (message.is_delivery) {
+      const order = await this.orderService.reviewWork(
+        message.orderId!,
+        actorId,
+        true,
+      );
+      await this.chatService.setStatus(message, 'accepted');
+      this.emitToBoth(message, 'messageAccepted', { messageId: message.id });
+      this.emitToBoth(message, 'orderUpdated', order.toJSON());
+      await this.sendServerMessage(
+        message,
+        `Работа по заказу «${order.title}» принята. Заказ завершён.`,
+      );
+      return;
+    }
+
     const performerId = message.is_suggest
       ? message.receiverId
       : message.senderId;
 
-    await this.orderService.assignPerformer(
+    const order = await this.orderService.assignPerformer(
       message.orderId!,
       [message.senderId, message.receiverId],
       performerId,
@@ -137,11 +264,12 @@ export class ChatGateway implements OnGatewayConnection {
     await this.chatService.setStatus(message, 'accepted');
 
     this.emitToBoth(message, 'messageAccepted', { messageId: message.id });
+    this.emitToBoth(message, 'orderUpdated', order.toJSON());
     await this.sendServerMessage(
       message,
-      client.data.userId,
-      'Предложение было принято',
+      `Предложение было принято ${await this.displayName(actorId)}.`,
     );
+    await this.closeOtherOffers(order.id, order.title, message.id);
   }
 
   @SubscribeMessage('rejectMessage')
@@ -149,17 +277,31 @@ export class ChatGateway implements OnGatewayConnection {
     @ConnectedSocket() client: AuthedSocket,
     @MessageBody() dto: MessageActionDto,
   ) {
-    const message = await this.findPendingOffer(
-      dto.messageId,
-      client.data.userId,
-    );
+    const actorId = client.data.userId;
+    const message = await this.findPendingOffer(dto.messageId, actorId);
+
+    if (message.is_delivery) {
+      const order = await this.orderService.reviewWork(
+        message.orderId!,
+        actorId,
+        false,
+      );
+      await this.chatService.setStatus(message, 'rejected');
+      this.emitToBoth(message, 'messageRejected', { messageId: message.id });
+      this.emitToBoth(message, 'orderUpdated', order.toJSON());
+      await this.sendServerMessage(
+        message,
+        `Работа по заказу «${order.title}» возвращена на доработку.`,
+      );
+      return;
+    }
+
     await this.chatService.setStatus(message, 'rejected');
 
     this.emitToBoth(message, 'messageRejected', { messageId: message.id });
     await this.sendServerMessage(
       message,
-      client.data.userId,
-      'Предложение было отклонено',
+      `Предложение было отклонено ${await this.displayName(actorId)}.`,
     );
   }
 
@@ -195,30 +337,41 @@ export class ChatGateway implements OnGatewayConnection {
     return message;
   }
 
-  /** Исполнитель сообщает заказчику, что заказ выполнен. */
+  /**
+   * Исполнитель сдаёт работу. Раньше заказ сразу считался завершённым —
+   * заказчик не мог ни проверить результат, ни вернуть его на доработку.
+   * Теперь заказчику приходит карточка «Работа сдана» с выбором.
+   */
   @SubscribeMessage('finishOrder')
   async handleFinishOrder(
     @ConnectedSocket() client: AuthedSocket,
     @MessageBody() dto: FinishOrderDto,
   ) {
-    const order = await this.orderService.completeOrder(
+    const order = await this.orderService.submitWork(
       dto.orderId,
       client.data.userId,
     );
 
-    await this.send({
+    const message = await this.send({
       senderId: client.data.userId,
       receiverId: order.user_id,
-      text: 'Заказ выполнен и готов к проверке.',
-      status: 'server',
+      text: dto.text?.trim() ?? '',
+      is_delivery: true,
       orderId: order.id,
     });
+    this.emitToBoth(message, 'orderUpdated', order.toJSON());
     return { orderId: order.id, status: order.status };
   }
 
-  private async send(data: Parameters<ChatService['saveMessage']>[0]) {
+  private async send(
+    data: Parameters<ChatService['saveMessage']>[0],
+    clientId?: string,
+  ) {
     const message = await this.chatService.saveMessage(data);
-    this.emitToBoth(message, 'receiveMessage', message.toJSON());
+    this.emitToBoth(message, 'receiveMessage', {
+      ...message.toJSON(),
+      clientId,
+    });
     return message;
   }
 
@@ -230,13 +383,33 @@ export class ChatGateway implements OnGatewayConnection {
     this.server.to([message.senderId, message.receiverId]).emit(event, payload);
   }
 
-  /** Предложение или отклик, адресованные пользователю и ещё без ответа. */
+  private connectionsOf(userId: string) {
+    return this.server.sockets.adapter.rooms.get(userId)?.size ?? 0;
+  }
+
+  /** Защита от флуда: скрипт мог отправлять сообщения без ограничений. */
+  private assertRate(client: AuthedSocket) {
+    const now = Date.now();
+    const recent = (client.data.sent ?? []).filter(
+      (t: number) => now - t < RATE_WINDOW_MS,
+    );
+    if (recent.length >= RATE_LIMIT) {
+      throw new WsException('Слишком много сообщений. Подождите немного');
+    }
+    recent.push(now);
+    client.data.sent = recent;
+  }
+
+  /** Предложение, отклик или сдача работы — адресованные пользователю и ещё без ответа. */
   private async findPendingOffer(
     messageId: string,
     userId: string,
   ): Promise<MessageDocument> {
     const message = await this.chatService.findMessage(messageId);
-    const isOffer = message.is_suggest || message.status === 'response';
+    const isOffer =
+      message.is_suggest ||
+      message.is_delivery ||
+      message.status === 'response';
 
     if (!isOffer || !message.orderId) {
       throw new WsException('Это сообщение нельзя принять или отклонить');
@@ -250,16 +423,35 @@ export class ChatGateway implements OnGatewayConnection {
     return message;
   }
 
+  /** Остальным кандидатам — что заказ ушёл другому исполнителю. */
+  private async closeOtherOffers(
+    orderId: string,
+    title: string,
+    acceptedId: string,
+  ) {
+    const closed = await this.chatService.closeOtherOffers(orderId, acceptedId);
+    for (const offer of closed) {
+      this.emitToBoth(offer, 'messageRejected', { messageId: offer.id });
+      await this.sendServerMessage(
+        offer,
+        `По заказу «${title}» выбран другой исполнитель.`,
+      );
+    }
+  }
+
+  private async displayName(userId: string) {
+    const user = await this.userService.getUser(userId);
+    return user.nickname || user.name;
+  }
+
   private async sendServerMessage(
     offer: Pick<Message, 'senderId' | 'receiverId'>,
-    actorId: string,
     text: string,
   ) {
-    const actor = await this.userService.getUser(actorId);
     await this.send({
       senderId: offer.senderId,
       receiverId: offer.receiverId,
-      text: `${text} ${actor.nickname || actor.name}.`,
+      text,
       status: 'server',
     });
   }

@@ -15,12 +15,54 @@ const IMAGE_TYPES: Record<string, string> = {
   'image/webp': '.webp',
 };
 
+/** Картинки в чате: те же, что у аватара, плюс GIF. */
+const CHAT_IMAGE_TYPES: Record<string, string> = {
+  ...IMAGE_TYPES,
+  'image/gif': '.gif',
+};
+
 const VIDEO_TYPES: Record<string, string> = {
   'video/mp4': '.mp4',
   'video/webm': '.webm',
 };
 
+/**
+ * Документы, которыми обмениваются заказчик и исполнитель: ТЗ, макеты
+ * в архиве, отчёты. Отдаются только на скачивание (см. main.ts), поэтому
+ * браузер не откроет их как страницу сайта.
+ */
+const DOCUMENT_TYPES: Record<string, string> = {
+  'application/pdf': '.pdf',
+  'application/zip': '.zip',
+  'application/x-zip-compressed': '.zip',
+  'application/vnd.rar': '.rar',
+  'application/x-rar-compressed': '.rar',
+  'application/x-7z-compressed': '.7z',
+  'application/msword': '.doc',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
+    '.docx',
+  'application/vnd.ms-excel': '.xls',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
+  'application/vnd.ms-powerpoint': '.ppt',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation':
+    '.pptx',
+  'text/plain': '.txt',
+};
+
+/** Расширения файлов, которые браузер показывает в чате сам. */
+export const INLINE_EXTENSIONS = new Set(
+  Object.values({ ...CHAT_IMAGE_TYPES, ...VIDEO_TYPES }),
+);
+
 const MB = 1024 * 1024;
+
+/**
+ * multer читает имя файла из multipart как latin1, и кириллица
+ * превращается в «Ð¢Ð—.pdf». Перекодируем обратно в UTF-8.
+ */
+export function originalName(file: Express.Multer.File) {
+  return Buffer.from(file.originalname, 'latin1').toString('utf8');
+}
 
 export function ensureUploadDirs() {
   for (const dir of ['avatars', 'files'] satisfies UploadDir[]) {
@@ -69,8 +111,23 @@ function uploadOptions(
 }
 
 export const avatarUpload = uploadOptions('avatars', IMAGE_TYPES, 3);
+/** Картинки и видео портфолио. */
 export const mediaUpload = uploadOptions(
   'files',
   { ...IMAGE_TYPES, ...VIDEO_TYPES },
   50,
 );
+
+/** Вложения в чате: ещё и документы с архивами. */
+export const chatUpload = uploadOptions(
+  'files',
+  { ...CHAT_IMAGE_TYPES, ...VIDEO_TYPES, ...DOCUMENT_TYPES },
+  50,
+);
+
+/** Тип вложения в чате по MIME-типу загруженного файла. */
+export function mediaTypeOf(mimetype: string): 'image' | 'video' | 'file' {
+  if (CHAT_IMAGE_TYPES[mimetype]) return 'image';
+  if (VIDEO_TYPES[mimetype]) return 'video';
+  return 'file';
+}
