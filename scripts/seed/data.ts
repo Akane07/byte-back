@@ -23,6 +23,9 @@ export interface SeedUser {
   /** Номер палитры аватара; нет — без аватара. */
   avatar?: number;
   verified?: boolean;
+  city?: string;
+  /** Принимает заказы — попадает в каталог исполнителей. */
+  performer?: { format: 'remote' | 'onsite' | 'both'; categories: number[]; priceFrom?: number };
   /** Сколько дней назад зарегистрирован и был в сети. */
   registeredDaysAgo: number;
   lastSeenHoursAgo?: number;
@@ -45,6 +48,8 @@ export const USERS: SeedUser[] = [
     skills: ['Figma', 'UI/UX', 'Прототипирование', 'Дизайн-системы', 'Адаптивный дизайн', 'Внимание к деталям'],
     avatar: 0,
     verified: true,
+    city: 'Москва',
+    performer: { format: 'remote', categories: [4, 1], priceFrom: 3000 },
     registeredDaysAgo: 320,
     lastSeenHoursAgo: 1,
   },
@@ -61,6 +66,8 @@ export const USERS: SeedUser[] = [
     skills: ['JavaScript', 'Typescript', 'Vue.js', 'Nuxt', 'React', 'HTML', 'CSS', 'Работа в срок'],
     avatar: 1,
     verified: true,
+    city: 'Санкт-Петербург',
+    performer: { format: 'remote', categories: [3, 2], priceFrom: 2000 },
     registeredDaysAgo: 210,
     lastSeenHoursAgo: 5,
   },
@@ -75,6 +82,7 @@ export const USERS: SeedUser[] = [
     skills: ['Node.js', 'Golang', 'Docker', 'Linux', 'Логическое мышление'],
     avatar: 2,
     verified: true,
+    performer: { format: 'remote', categories: [2, 3] },
     registeredDaysAgo: 150,
     lastSeenHoursAgo: 30,
   },
@@ -91,6 +99,8 @@ export const USERS: SeedUser[] = [
     skills: ['After Effects', 'Premiere Pro', 'Моушн-дизайн', 'Креативность'],
     avatar: 3,
     verified: true,
+    city: 'Казань',
+    performer: { format: 'both', categories: [5, 19], priceFrom: 5000 },
     registeredDaysAgo: 95,
     lastSeenHoursAgo: 72,
   },
@@ -102,6 +112,8 @@ export const USERS: SeedUser[] = [
     country: 'Россия',
     skills: ['Копирайтинг', 'Рерайтинг', 'Редактура'],
     verified: true,
+    city: 'Москва',
+    performer: { format: 'remote', categories: [9, 6], priceFrom: 500 },
     registeredDaysAgo: 60,
     lastSeenHoursAgo: 12,
   },
@@ -110,6 +122,7 @@ export const USERS: SeedUser[] = [
     name: 'Игорь Власов',
     speciality: 'SEO-специалист',
     skills: ['SEO', 'Keywords'],
+    performer: { format: 'remote', categories: [8] },
     registeredDaysAgo: 40,
   },
   {
@@ -123,6 +136,7 @@ export const USERS: SeedUser[] = [
     skills: ['3D-моделирование', 'Blender', 'Визуализация'],
     avatar: 5,
     verified: true,
+    performer: { format: 'remote', categories: [10] },
     registeredDaysAgo: 120,
     lastSeenHoursAgo: 48,
   },
@@ -136,6 +150,8 @@ export const USERS: SeedUser[] = [
     skills: ['Machine learning', 'Python', 'TensorFlow'],
     avatar: 6,
     verified: true,
+    city: 'Новосибирск',
+    performer: { format: 'remote', categories: [11, 2], priceFrom: 4000 },
     registeredDaysAgo: 75,
     lastSeenHoursAgo: 3,
   },
@@ -153,6 +169,7 @@ export const USERS: SeedUser[] = [
     telegram: 'https://t.me/petrov_studio',
     avatar: 4,
     verified: true,
+    city: 'Москва',
     registeredDaysAgo: 400,
     lastSeenHoursAgo: 2,
   },
@@ -164,6 +181,7 @@ export const USERS: SeedUser[] = [
     country: 'Россия',
     avatar: 7,
     verified: true,
+    city: 'Казань',
     registeredDaysAgo: 30,
     lastSeenHoursAgo: 20,
   },
@@ -176,6 +194,7 @@ export const USERS: SeedUser[] = [
     country: 'Грузия',
     telegram: 'https://t.me/nikitin_fit',
     avatar: 1,
+    city: 'Москва',
     registeredDaysAgo: 14,
     lastSeenHoursAgo: 8,
   },
@@ -190,14 +209,106 @@ export const USERS: SeedUser[] = [
     skills: ['Illustrator', 'Photoshop', 'Иллюстрация'],
     avatar: 3,
     verified: true,
+    city: 'Санкт-Петербург',
+    performer: { format: 'remote', categories: [1] },
     registeredDaysAgo: 180,
     lastSeenHoursAgo: 26,
+  },
+
+  // --- Исполнители услуг на месте ---
+  {
+    key: 'ruslan',
+    name: 'Руслан Гарипов',
+    nickname: 'master_ruslan',
+    speciality: 'Мастер на час',
+    description:
+      'Мелкий ремонт по дому: соберу мебель, повешу полки и карнизы, заменю смеситель и розетки. Свой инструмент, приезжаю в день обращения.',
+    country: 'Россия',
+    city: 'Казань',
+    phone: '+79172223344',
+    skills: ['Мелкий ремонт', 'Сборка мебели', 'Электрика', 'Сантехника', 'Пунктуальность'],
+    avatar: 2,
+    verified: true,
+    performer: { format: 'onsite', categories: [14, 21], priceFrom: 800 },
+    registeredDaysAgo: 230,
+    lastSeenHoursAgo: 0.5,
+  },
+  {
+    key: 'svetlana',
+    name: 'Светлана Ахметова',
+    speciality: 'Клининг',
+    description: 'Генеральная и поддерживающая уборка квартир и небольших офисов. Средства и оборудование — мои.',
+    country: 'Россия',
+    city: 'Казань',
+    skills: ['Генеральная уборка', 'Уборка после ремонта', 'Мойка окон', 'Внимание к деталям'],
+    avatar: 7,
+    verified: true,
+    performer: { format: 'onsite', categories: [15], priceFrom: 2500 },
+    registeredDaysAgo: 140,
+    lastSeenHoursAgo: 4,
+  },
+  {
+    key: 'nikolay',
+    name: 'Николай Смирнов',
+    nickname: 'gruz_msk',
+    speciality: 'Грузоперевозки и переезды',
+    description: 'Газель с грузчиками. Квартирные и офисные переезды по Москве и области, вывоз мусора.',
+    country: 'Россия',
+    city: 'Москва',
+    skills: ['Грузчики', 'Грузовое такси', 'Офисный переезд', 'Квартирный переезд'],
+    avatar: 5,
+    verified: true,
+    performer: { format: 'onsite', categories: [16, 24], priceFrom: 1200 },
+    registeredDaysAgo: 300,
+    lastSeenHoursAgo: 6,
+  },
+  {
+    key: 'anna',
+    name: 'Анна Кузнецова',
+    nickname: 'anna_english',
+    speciality: 'Репетитор английского',
+    description:
+      'Английский для школьников и взрослых: ЕГЭ, разговорный, подготовка к собеседованию. Занимаюсь онлайн или у вас дома в Москве.',
+    country: 'Россия',
+    city: 'Москва',
+    skills: ['Английский язык', 'Подготовка к ЕГЭ/ОГЭ', 'Коммуникабельность'],
+    avatar: 0,
+    verified: true,
+    performer: { format: 'both', categories: [12], priceFrom: 1500 },
+    registeredDaysAgo: 90,
+    lastSeenHoursAgo: 1,
+  },
+  {
+    key: 'elena',
+    name: 'Елена Воронцова',
+    speciality: 'Фотограф',
+    description: 'Портреты, семейные и предметные съёмки в Петербурге. Студия или выезд.',
+    country: 'Россия',
+    city: 'Санкт-Петербург',
+    behance: 'https://www.behance.net/elenavorontsova',
+    skills: ['Портретная съёмка', 'Предметная съёмка', 'Репортаж'],
+    avatar: 6,
+    verified: true,
+    performer: { format: 'onsite', categories: [19, 20], priceFrom: 4000 },
+    registeredDaysAgo: 200,
+    lastSeenHoursAgo: 30,
+  },
+  {
+    key: 'kirill',
+    name: 'Кирилл',
+    speciality: 'Курьер',
+    description: 'Доставлю документы и покупки по Москве, есть машина.',
+    city: 'Москва',
+    skills: ['Курьер на авто', 'Доставка документов'],
+    performer: { format: 'onsite', categories: [17] },
+    registeredDaysAgo: 20,
+    lastSeenHoursAgo: 2,
   },
 
   // --- Почти пустые профили ---
   // Без имени: как после регистрации по новой форме — имя из почты.
   { key: 'newbie', registeredDaysAgo: 1 },
-  { key: 'pavel', name: 'Павел', registeredDaysAgo: 5, lastSeenHoursAgo: 100 },
+  { key: 'pavel', name: 'Павел', city: 'Казань', registeredDaysAgo: 5, lastSeenHoursAgo: 100 },
 ];
 
 export interface SeedPortfolio {
@@ -384,6 +495,9 @@ export interface SeedResponse {
   outcome?: Outcome;
 }
 
+/** Оценка, текст и (необязательно) ответ того, о ком отзыв. */
+export type SeedReview = [rating: number, text: string, reply?: string];
+
 export interface SeedOrder {
   owner: string;
   title: string;
@@ -396,8 +510,15 @@ export interface SeedOrder {
   /** Для deadlines = custom: через сколько дней от публикации начало и конец. */
   customDays?: [number, number];
   for_experts?: boolean;
+  /** Заказ на месте: город и (необязательно) адрес. Без onsite — удалённый. */
+  onsite?: { city: string; address?: string };
+  urgent?: boolean;
   skills: string[];
   daysAgo: number;
+  /** Для completed: сколько дней назад заказчик принял работу (иначе — через 3 дня после отклика). */
+  completedDaysAgo?: number;
+  /** Отзывы сторон по завершённому заказу. */
+  reviews?: { byCustomer?: SeedReview; byPerformer?: SeedReview };
   /** active — в ленте; completed — исполнитель завершил (нужен принятый отклик). */
   state?: 'active' | 'draft' | 'archived' | 'completed';
   responses?: SeedResponse[];
@@ -405,6 +526,110 @@ export interface SeedOrder {
 }
 
 export const ORDERS: SeedOrder[] = [
+  // --- Заказы на месте ---
+  {
+    owner: 'marina',
+    title: 'Собрать и повесить полки в кофейне',
+    description:
+      'Три настенные полки и барная стойка из IKEA, всё уже на месте. Нужно собрать и надёжно закрепить на кирпичную стену. Желательно сегодня вечером или завтра утром.',
+    category: 14,
+    price_type: 'fixed',
+    price: 3500,
+    type: 'one-time',
+    deadlines: 'less-week',
+    onsite: { city: 'Казань', address: 'ул. Баумана, 44' },
+    urgent: true,
+    skills: ['Сборка мебели', 'Мелкий ремонт'],
+    daysAgo: 0.05,
+    responses: [{ from: 'ruslan', text: 'Добрый день! Могу сегодня с 19:00, инструмент и анкеры для кирпича привезу.' }],
+    viewedBy: ['ruslan'],
+  },
+  {
+    owner: 'marina',
+    title: 'Генеральная уборка после ремонта, 80 м²',
+    description: 'Зал кофейни и подсобка: строительная пыль, мойка окон и витрин, уборка санузла.',
+    category: 15,
+    price_type: 'fixed',
+    price: 9000,
+    type: 'one-time',
+    deadlines: 'less-week',
+    onsite: { city: 'Казань' },
+    skills: ['Уборка после ремонта', 'Мойка окон'],
+    daysAgo: 0.6,
+    viewedBy: ['svetlana'],
+  },
+  {
+    owner: 'sergey',
+    title: 'Переезд офиса на 15 рабочих мест',
+    description:
+      'Переезжаем в соседний бизнес-центр (3 км). Столы, кресла, техника, архив — около 40 коробок. Нужны машина и 3–4 грузчика, лучше в субботу.',
+    category: 16,
+    price_type: 'contract',
+    price: 0,
+    type: 'one-time',
+    deadlines: 'custom',
+    customDays: [5, 5],
+    onsite: { city: 'Москва', address: 'Пресненская наб., 12' },
+    skills: ['Офисный переезд', 'Грузчики'],
+    daysAgo: 0.8,
+    responses: [{ from: 'nikolay', text: 'Две Газели и 4 грузчика, справимся за полдня. Упаковку коробок можем взять на себя.' }],
+  },
+  {
+    owner: 'artem',
+    title: 'Репетитор английского: подготовка к собеседованию',
+    description: 'Собеседование в международную компанию через месяц. Нужен разговорный английский, 2–3 занятия в неделю, можно у меня дома.',
+    category: 12,
+    price_type: 'hourly',
+    price: { from: 1200, to: 2000 },
+    type: 'reusable',
+    deadlines: 'less-month',
+    onsite: { city: 'Москва' },
+    skills: ['Английский язык'],
+    daysAgo: 1.2,
+    viewedBy: ['anna'],
+  },
+  {
+    owner: 'vika',
+    title: 'Предметная съёмка иллюстраций для каталога',
+    description: '30 оригиналов иллюстраций формата А4 и 10 открыток. Нужна ровная съёмка без бликов и обработка.',
+    category: 19,
+    price_type: 'fixed',
+    price: 12000,
+    type: 'one-time',
+    deadlines: 'more-week',
+    onsite: { city: 'Санкт-Петербург' },
+    skills: ['Предметная съёмка'],
+    daysAgo: 2,
+    responses: [{ from: 'elena', text: 'Сниму в студии со светом для репродукций, обработка — 3 дня.' }],
+  },
+  {
+    owner: 'pavel',
+    title: 'Не сливает воду стиральная машина',
+    description: 'Bosch, 6 лет. Остановилась с водой в барабане, на экране ошибка E18. Нужна диагностика и ремонт.',
+    category: 21,
+    price_type: 'contract',
+    price: 0,
+    type: 'one-time',
+    deadlines: 'less-week',
+    onsite: { city: 'Казань', address: 'пр. Победы, 100, кв. 15' },
+    urgent: true,
+    skills: ['Ремонт стиральных машин'],
+    daysAgo: 0.2,
+  },
+  {
+    owner: 'sergey',
+    title: 'Отвезти документы в налоговую и забрать выписку',
+    description: 'Пакет документов из офиса на Пресне в ИФНС №7, там же забрать готовую выписку. Доверенность выдадим.',
+    category: 17,
+    price_type: 'fixed',
+    price: 1500,
+    type: 'one-time',
+    deadlines: 'less-week',
+    onsite: { city: 'Москва' },
+    urgent: true,
+    skills: ['Доставка документов'],
+    daysAgo: 0.3,
+  },
   // --- Активные, в ленте (больше 10 — чтобы работала пагинация) ---
   {
     owner: 'marina',
@@ -642,6 +867,10 @@ export const ORDERS: SeedOrder[] = [
     daysAgo: 20,
     state: 'completed',
     responses: [{ from: 'vika', text: 'Сделаю с иллюстрациями кофейных зёрен.', outcome: 'accepted' }],
+    reviews: {
+      byCustomer: [5, 'Меню получилось очень «нашим», гости фотографируют его. Две правки внесла в тот же день.'],
+      byPerformer: [5, 'Чёткое ТЗ и быстрые ответы. С удовольствием поработаю ещё.'],
+    },
   },
   {
     owner: 'sergey',
@@ -656,6 +885,197 @@ export const ORDERS: SeedOrder[] = [
     daysAgo: 45,
     state: 'completed',
     responses: [{ from: 'maxim', text: 'Сверстаю таблицами, проверю в Litmus.', outcome: 'accepted' }],
+    reviews: {
+      byCustomer: [4, 'Вёрстка корректная во всех клиентах, но сдал на день позже оговорённого.', 'Спасибо! Задержка из-за правок в Outlook — учту на будущее.'],
+      byPerformer: [5, 'Отличный заказчик, макет и тексты были готовы заранее.'],
+    },
+  },
+
+  // --- Завершённые сделки с отзывами: история для рейтингов в каталоге ---
+  {
+    owner: 'marina',
+    title: 'Повесить карнизы и зеркало в зале',
+    description: 'Два карниза по 3 м и зеркало 120×80 на гипсокартон.',
+    category: 14,
+    price_type: 'fixed',
+    price: 2500,
+    type: 'one-time',
+    deadlines: 'less-week',
+    onsite: { city: 'Казань' },
+    skills: ['Мелкий ремонт'],
+    daysAgo: 90,
+    state: 'completed',
+    responses: [{ from: 'ruslan', text: 'Приеду завтра утром, крепёж для гипсокартона есть.', outcome: 'accepted' }],
+    reviews: {
+      byCustomer: [5, 'Приехал вовремя, всё ровно по уровню, убрал за собой. Теперь зовём только Руслана.'],
+      byPerformer: [5, 'Всё объяснили, встретили, оплатили сразу.'],
+    },
+  },
+  {
+    owner: 'pavel',
+    title: 'Собрать шкаф-купе и комод',
+    description: 'Шкаф 2 м и комод, инструкции есть.',
+    category: 14,
+    price_type: 'fixed',
+    price: 4000,
+    type: 'one-time',
+    deadlines: 'less-week',
+    onsite: { city: 'Казань' },
+    skills: ['Сборка мебели'],
+    daysAgo: 60,
+    state: 'completed',
+    responses: [{ from: 'ruslan', text: 'Соберу за один визит, часа за три.', outcome: 'accepted' }],
+    reviews: {
+      byCustomer: [5, 'Быстро и аккуратно, двери шкафа ходят мягко. Рекомендую.'],
+      byPerformer: [4, 'Нормально, но пришлось ждать у подъезда полчаса.'],
+    },
+  },
+  {
+    owner: 'sergey',
+    title: 'Заменить розетки и выключатели в офисе',
+    description: '12 розеток и 6 выключателей, фурнитура наша.',
+    category: 14,
+    price_type: 'fixed',
+    price: 5000,
+    type: 'one-time',
+    deadlines: 'less-week',
+    onsite: { city: 'Казань' },
+    skills: ['Электрика'],
+    daysAgo: 40,
+    state: 'completed',
+    responses: [{ from: 'ruslan', text: 'Сделаю за вечер, чтобы не мешать работе офиса.', outcome: 'accepted' }],
+    reviews: {
+      byCustomer: [4, 'Работа хорошая, но перенёс визит на день.', 'Извините за перенос — задержался на предыдущем заказе.'],
+    },
+  },
+  {
+    owner: 'marina',
+    title: 'Поддерживающая уборка кофейни',
+    description: 'Раз в неделю после закрытия, зал 60 м².',
+    category: 15,
+    price_type: 'fixed',
+    price: 3000,
+    type: 'reusable',
+    deadlines: 'more-month',
+    onsite: { city: 'Казань' },
+    skills: ['Поддерживающая уборка'],
+    daysAgo: 70,
+    state: 'completed',
+    responses: [{ from: 'svetlana', text: 'Могу по понедельникам после 22:00.', outcome: 'accepted' }],
+    reviews: {
+      byCustomer: [5, 'Идеальная чистота, даже кофемашину отмыли. Уже три месяца работаем.'],
+      byPerformer: [5, 'Отличные условия и всегда вовремя оплата.'],
+    },
+  },
+  {
+    owner: 'pavel',
+    title: 'Мойка окон в квартире',
+    description: 'Пять окон и балкон, 6 этаж.',
+    category: 15,
+    price_type: 'fixed',
+    price: 2500,
+    type: 'one-time',
+    deadlines: 'less-week',
+    onsite: { city: 'Казань' },
+    skills: ['Мойка окон'],
+    daysAgo: 35,
+    state: 'completed',
+    responses: [{ from: 'svetlana', text: 'Свободна в субботу.', outcome: 'accepted' }],
+    reviews: {
+      byCustomer: [2, 'Окна помыты, но на двух остались разводы, переделывать отказались.', 'На двух окнах разводы были от внешней плёнки — предлагала её снять, это отдельная работа.'],
+    },
+  },
+  {
+    owner: 'sergey',
+    title: 'Перевезти мебель на склад',
+    description: 'Пять столов и стеллажи, 10 км.',
+    category: 16,
+    price_type: 'fixed',
+    price: 6000,
+    type: 'one-time',
+    deadlines: 'less-week',
+    onsite: { city: 'Москва' },
+    skills: ['Грузчики', 'Перевозка мебели'],
+    daysAgo: 50,
+    state: 'completed',
+    responses: [{ from: 'nikolay', text: 'Газель и двое грузчиков, завтра с 9:00.', outcome: 'accepted' }],
+    reviews: {
+      byCustomer: [5, 'Всё целое, приехали минута в минуту.'],
+      byPerformer: [5, 'Всё было готово к погрузке, спасибо.'],
+    },
+  },
+  {
+    owner: 'artem',
+    title: 'Разговорный английский: 8 занятий',
+    description: 'Подтянуть разговорный перед командировкой.',
+    category: 12,
+    price_type: 'hourly',
+    price: { from: 1500, to: 1500 },
+    type: 'reusable',
+    deadlines: 'less-month',
+    onsite: { city: 'Москва' },
+    skills: ['Английский язык'],
+    daysAgo: 100,
+    state: 'completed',
+    responses: [{ from: 'anna', text: 'Подготовлю план под ваши рабочие ситуации.', outcome: 'accepted' }],
+    reviews: {
+      byCustomer: [5, 'Занятия по делу, через месяц спокойно говорил на созвонах.'],
+      byPerformer: [5, 'Мотивированный ученик, приятно работать.'],
+    },
+  },
+  {
+    owner: 'sergey',
+    title: 'Дизайн мобильного приложения для клиники',
+    description: 'Запись к врачу, личный кабинет, 25 экранов.',
+    category: 4,
+    price_type: 'fixed',
+    price: 90000,
+    type: 'one-time',
+    deadlines: 'less-month',
+    skills: ['Figma', 'UI/UX'],
+    daysAgo: 120,
+    state: 'completed',
+    responses: [{ from: 'alina', text: 'Начну с карты сценариев, затем прототип.', outcome: 'accepted' }],
+    reviews: {
+      byCustomer: [5, 'Сильный дизайнер: продумала сценарии, о которых мы не подумали. Макеты аккуратные, с дизайн-системой.', 'Спасибо, Сергей! Было интересно поработать над медицинским продуктом.'],
+      byPerformer: [5, 'Быстрые согласования и понятная обратная связь.'],
+    },
+  },
+
+  // --- Недавно завершённые: окно для отзывов ещё открыто ---
+  {
+    owner: 'marina',
+    title: 'Установить смеситель на кухне',
+    description: 'Смеситель куплен, старый нужно снять.',
+    category: 14,
+    price_type: 'fixed',
+    price: 1500,
+    type: 'one-time',
+    deadlines: 'less-week',
+    onsite: { city: 'Казань' },
+    skills: ['Сантехника'],
+    daysAgo: 4,
+    completedDaysAgo: 1,
+    state: 'completed',
+    responses: [{ from: 'ruslan', text: 'Могу сегодня вечером.', outcome: 'accepted' }],
+  },
+  {
+    owner: 'artem',
+    title: 'Перевезти диван в новую квартиру',
+    description: 'Диван и два кресла, лифт есть.',
+    category: 16,
+    price_type: 'fixed',
+    price: 3500,
+    type: 'one-time',
+    deadlines: 'less-week',
+    onsite: { city: 'Москва' },
+    skills: ['Грузчики'],
+    daysAgo: 6,
+    completedDaysAgo: 2,
+    state: 'completed',
+    responses: [{ from: 'nikolay', text: 'Заберу завтра в первой половине дня.', outcome: 'accepted' }],
+    // Заказчик уже оценил, исполнитель — ещё нет: отзыв пока скрыт.
+    reviews: { byCustomer: [5, 'Аккуратно и быстро, спасибо!'] },
   },
 
   // --- Черновики и архив (видны только владельцу в «Мои заказы») ---

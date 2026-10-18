@@ -6,6 +6,7 @@ import { CategoryModule } from '../category/category.module';
 import { ChatModule } from '../chat/chat.module';
 import { OrderModule } from '../order/order.module';
 import { PortfolioModule } from '../portfolio/portfolio.module';
+import { ReviewModule } from '../review/review.module';
 import { UserModule } from '../user/user.module';
 
 @Module({
@@ -23,6 +24,7 @@ import { UserModule } from '../user/user.module';
     PortfolioModule,
     CategoryModule,
     ChatModule,
+    ReviewModule,
   ],
 })
 export class AppModule {}

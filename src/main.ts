@@ -5,7 +5,12 @@ import { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app/app.module';
 import { CorsIoAdapter } from './common/socket-io.adapter';
-import { UPLOADS_ROOT, ensureUploadDirs } from './common/uploads';
+import { extname } from 'path';
+import {
+  INLINE_EXTENSIONS,
+  UPLOADS_ROOT,
+  ensureUploadDirs,
+} from './common/uploads';
 
 async function bootstrap() {
   ensureUploadDirs();
@@ -30,7 +35,18 @@ async function bootstrap() {
   // transform: строки из query/multipart приводятся к типам из DTO.
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
 
-  app.useStaticAssets(UPLOADS_ROOT, { prefix: '/uploads' });
+  app.useStaticAssets(UPLOADS_ROOT, {
+    prefix: '/uploads',
+    // Картинки и видео браузер показывает сам, всё остальное (PDF, архивы,
+    // документы) — только скачивание. nosniff не даёт браузеру «угадать»
+    // в файле HTML и выполнить его на домене API.
+    setHeaders: (res, path) => {
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      if (!INLINE_EXTENSIONS.has(extname(path).toLowerCase())) {
+        res.setHeader('Content-Disposition', 'attachment');
+      }
+    },
+  });
 
   if (config.get<string>('NODE_ENV') !== 'production') {
     const swaggerConfig = new DocumentBuilder()

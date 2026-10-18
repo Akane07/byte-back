@@ -6,31 +6,13 @@ import {
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
+import {
+  CATEGORIES,
+  CATEGORY_IDS,
+  OTHER_CATEGORY_ID,
+} from './constants/categories';
 import { baseSkills, skills } from './constants/skills';
 import { Category } from './schemas/category.schema';
-
-/** id категории «Другое» — у неё только базовые навыки. */
-const OTHER_CATEGORY_ID = 13;
-
-/**
- * Начальный набор категорий. Пишется в базу, только если коллекция пуста,
- * поэтому на уже заполненную базу не влияет. id совпадают с ключами skills.
- */
-const DEFAULT_CATEGORIES: Category[] = [
-  { id: 1, title: 'Графический дизайн' },
-  { id: 2, title: 'Программирование' },
-  { id: 3, title: 'Веб-разработка' },
-  { id: 4, title: 'UI/UX-дизайн' },
-  { id: 5, title: 'Видео и анимация' },
-  { id: 6, title: 'Маркетинг и реклама' },
-  { id: 7, title: 'Бизнес и консалтинг' },
-  { id: 8, title: 'SEO и продвижение' },
-  { id: 9, title: 'Тексты и переводы' },
-  { id: 10, title: 'Инжиниринг и 3D' },
-  { id: 11, title: 'Искусственный интеллект' },
-  { id: 12, title: 'Обучение' },
-  { id: OTHER_CATEGORY_ID, title: 'Другое' },
-];
 
 @Injectable()
 export class CategoryService implements OnModuleInit {
@@ -40,16 +22,31 @@ export class CategoryService implements OnModuleInit {
     @InjectModel(Category.name) private readonly categoryModel: Model<Category>,
   ) {}
 
+  /**
+   * Справочник категорий задан в коде (constants/categories.ts) и при каждом
+   * запуске приводится в базе к нему: новые категории добавляются, у старых
+   * обновляются название и формат. Раньше категории записывались только
+   * в пустую базу, и уже работающий сайт никогда не получил бы новые.
+   */
   async onModuleInit() {
-    if (await this.categoryModel.estimatedDocumentCount()) return;
-    await this.categoryModel.insertMany(DEFAULT_CATEGORIES);
-    this.logger.log(
-      `Коллекция категорий была пуста — добавлено ${DEFAULT_CATEGORIES.length}`,
+    const result = await this.categoryModel.bulkWrite(
+      CATEGORIES.map((category, order) => ({
+        updateOne: {
+          filter: { id: category.id },
+          update: { $set: { ...category, order } },
+          upsert: true,
+        },
+      })),
     );
+    if (result.upsertedCount) {
+      this.logger.log(`Добавлено категорий: ${result.upsertedCount}`);
+    }
   }
 
   getCategories() {
-    return this.categoryModel.find().sort({ id: 1 });
+    return this.categoryModel.find({ id: { $in: CATEGORY_IDS } }).sort({
+      order: 1,
+    });
   }
 
   getSkills(id: number) {

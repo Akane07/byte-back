@@ -16,6 +16,7 @@ import {
   ValidateNested,
   ValidationOptions,
 } from 'class-validator';
+import { CITIES } from '../../common/cities';
 import {
   DEADLINES,
   Deadline,
@@ -24,6 +25,8 @@ import {
   PRICE_TYPES,
   PriceRange,
   PriceType,
+  WORK_FORMATS,
+  WorkFormat,
 } from '../schemas/order.schema';
 
 const MAX_PRICE = 10_000_000;
@@ -116,6 +119,37 @@ export class CreateOrderDto {
   readonly category?: number;
 
   @ApiPropertyOptional({
+    example: 'onsite',
+    enum: WORK_FORMATS,
+    description: 'Удалённо или на месте. По умолчанию — удалённо',
+  })
+  @IsOptional()
+  @IsIn(WORK_FORMATS)
+  readonly work_format?: WorkFormat;
+
+  @ApiPropertyOptional({
+    example: 'Казань',
+    description: 'Город, обязателен для заказа на месте',
+  })
+  @IsOptional()
+  @IsIn(CITIES, { message: 'Выберите город из списка' })
+  readonly city?: string;
+
+  @ApiPropertyOptional({
+    example: 'ул. Баумана, 12',
+    description: 'Адрес — увидит только выбранный исполнитель',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  readonly address?: string;
+
+  @ApiPropertyOptional({ example: false, description: 'Срочный заказ' })
+  @IsOptional()
+  @IsBoolean()
+  readonly urgent?: boolean;
+
+  @ApiPropertyOptional({
     example: false,
     description: 'Сохранить как черновик',
   })
@@ -158,6 +192,34 @@ export class OrderListQueryDto {
   @Min(1)
   @Max(10_000)
   readonly page: number = 1;
+
+  @ApiPropertyOptional({
+    enum: WORK_FORMATS,
+    description: 'Только удалённые или только на месте',
+  })
+  @IsOptional()
+  @IsIn(WORK_FORMATS)
+  readonly format?: WorkFormat;
+
+  @ApiPropertyOptional({
+    example: 'Казань',
+    description: 'Город: заказы на месте — только в нём, удалённые — все',
+  })
+  @IsOptional()
+  @IsIn(CITIES)
+  readonly city?: string;
+
+  @ApiPropertyOptional({ description: 'Поиск по названию, описанию и навыкам' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  readonly q?: string;
+
+  @ApiPropertyOptional({ description: 'Только срочные' })
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true' || value === '1')
+  @IsBoolean()
+  readonly urgent?: boolean;
 
   // ?categories=1&categories=2 приходит массивом, а ?categories=1 — строкой.
   @ApiPropertyOptional({ type: [Number], description: 'ID категорий' })

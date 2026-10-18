@@ -15,7 +15,12 @@ import { ApiBearerAuth, ApiConsumes, ApiOperation } from '@nestjs/swagger';
 import { UserId } from '../auth/current-user.decorator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ParseObjectIdPipe } from '../common/parse-object-id.pipe';
-import { mediaUpload, uploadUrl } from '../common/uploads';
+import {
+  chatUpload,
+  mediaTypeOf,
+  originalName,
+  uploadUrl,
+} from '../common/uploads';
 import { OrderService } from '../order/order.service';
 import { ChatService } from './chat.service';
 
@@ -31,19 +36,34 @@ export class ChatController {
   @Get('chat')
   @ApiOperation({
     summary: 'Переписка с пользователем',
-    description: '?user=<id собеседника>',
+    description:
+      '?user=<id собеседника>&before=<id сообщения>&limit=50 — страница истории ' +
+      'от старых к новым и признак hasMore',
   })
   getChat(
     @UserId() userId: string,
     @Query('user', ParseObjectIdPipe) otherId: string,
+    @Query('before') before?: string,
+    @Query('limit') limit?: string,
   ) {
-    return this.chatService.getChatBetweenUsers(userId, otherId);
+    return this.chatService.getChatBetweenUsers(
+      userId,
+      otherId,
+      before,
+      limit ? Number(limit) || undefined : undefined,
+    );
   }
 
   @Get('chat/all')
   @ApiOperation({ summary: 'Список своих диалогов' })
   getAllChats(@UserId() userId: string) {
     return this.chatService.getUserChats(userId);
+  }
+
+  @Get('chat/unread')
+  @ApiOperation({ summary: 'Непрочитанные сообщения: всего и по собеседникам' })
+  getUnread(@UserId() userId: string) {
+    return this.chatService.getUnread(userId);
   }
 
   @Get('chat/between/:id/and/:uid')
@@ -63,13 +83,21 @@ export class ChatController {
   @ApiConsumes('multipart/form-data')
   @ApiOperation({
     summary: 'Загрузить файл для чата',
-    description: 'multipart, поле file: JPEG/PNG/WebP/MP4/WebM до 50 МБ',
+    description:
+      'multipart, поле file до 50 МБ: картинки (JPEG/PNG/WebP/GIF), видео ' +
+      '(MP4/WebM), документы (PDF, DOC/DOCX, XLS/XLSX, PPT/PPTX, TXT) и архивы (ZIP/RAR/7Z)',
   })
-  @UseInterceptors(FileInterceptor('file', mediaUpload))
+  @UseInterceptors(FileInterceptor('file', chatUpload))
   uploadFile(@UploadedFile() file?: Express.Multer.File) {
     if (!file) {
       throw new BadRequestException('Файл не передан');
     }
-    return { url: uploadUrl('files', file.filename), mimetype: file.mimetype };
+    return {
+      url: uploadUrl('files', file.filename),
+      mimetype: file.mimetype,
+      mediaType: mediaTypeOf(file.mimetype),
+      name: originalName(file),
+      size: file.size,
+    };
   }
 }

@@ -5,6 +5,7 @@ import {
   Get,
   Param,
   Post,
+  Query,
   UploadedFile,
   UseGuards,
   UseInterceptors,
@@ -21,9 +22,10 @@ import { AccessToken, ChangePasswordDto } from '../auth/dto/create-user.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { User } from '../auth/schemas/user.schema';
 import { avatarUpload, uploadUrl } from '../common/uploads';
+import { CITIES } from '../common/cities';
 import { ParseObjectIdPipe } from '../common/parse-object-id.pipe';
 import { countries } from './constants/countries';
-import { UpdateUserDto } from './dto/update-user.dto';
+import { SpecialistsQueryDto, UpdateUserDto } from './dto/update-user.dto';
 import { UserService } from './user.service';
 
 const sortedCountries = [...countries].sort((a, b) => a.localeCompare(b, 'ru'));
@@ -37,6 +39,23 @@ export class UserController {
   @ApiResponse({ status: 200, type: [String] })
   getCountries() {
     return sortedCountries;
+  }
+
+  @Get('cities')
+  @ApiOperation({ summary: 'Города для заказов на месте и профилей' })
+  @ApiResponse({ status: 200, type: [String] })
+  getCities() {
+    return CITIES;
+  }
+
+  @Get('specialists')
+  @ApiOperation({
+    summary: 'Каталог исполнителей',
+    description:
+      'Пользователи с «Принимаю заказы»: поиск, категории, формат работы, город. По 12 на страницу',
+  })
+  getSpecialists(@Query() query: SpecialistsQueryDto) {
+    return this.userService.getSpecialists(query);
   }
 
   @Get('me')

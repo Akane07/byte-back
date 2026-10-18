@@ -4,6 +4,10 @@ import { HydratedDocument } from 'mongoose';
 
 export type UserDocument = HydratedDocument<User>;
 
+/** Где исполнитель готов работать: удалённо, на месте или и так, и так. */
+export const PERFORMER_FORMATS = ['remote', 'onsite', 'both'] as const;
+export type PerformerFormat = (typeof PERFORMER_FORMATS)[number];
+
 @Schema()
 export class User {
   @ApiProperty({ example: 'ivan@example.com', description: 'Почта' })
@@ -68,6 +72,31 @@ export class User {
   @Prop({ default: '' })
   country: string;
 
+  @ApiProperty({ example: 'Казань', description: 'Город' })
+  @Prop({ default: '', index: true })
+  city: string;
+
+  /** Показывать в каталоге исполнителей («Принимаю заказы»). */
+  @ApiProperty({ example: true, description: 'Принимает заказы' })
+  @Prop({ default: false, index: true })
+  is_performer: boolean;
+
+  @ApiProperty({
+    example: 'both',
+    enum: PERFORMER_FORMATS,
+    description: 'Где готов работать',
+  })
+  @Prop({ enum: PERFORMER_FORMATS, default: 'remote' })
+  work_format: PerformerFormat;
+
+  @ApiProperty({ example: [3, 4], description: 'Категории услуг, до 5' })
+  @Prop({ type: [Number], default: [] })
+  categories: number[];
+
+  @ApiProperty({ example: 1500, description: 'Цена услуг «от», руб.' })
+  @Prop({ min: 0 })
+  price_from?: number;
+
   @ApiProperty({
     example: '2025-01-01T00:00:00.000Z',
     description: 'Последний вход',
@@ -82,15 +111,38 @@ export class User {
   @Prop({ default: Date.now })
   created_at: Date;
 
-  @ApiProperty({ example: 5, description: 'Рейтинг' })
+  /** Средняя оценка как исполнителя (0 — отзывов нет). Считает ReviewService. */
+  @ApiProperty({ example: 4.8, description: 'Рейтинг исполнителя' })
   @Prop({ default: 0 })
   rating: number;
+
+  /**
+   * Рейтинг для сортировки каталога — байесовское среднее: при малом числе
+   * отзывов он тянется к средней оценке по площадке. Иначе один отзыв на 5★
+   * стоял бы выше сотни отзывов на 4.9★.
+   */
+  @Prop({ default: 0, index: true })
+  rating_score: number;
+
+  @ApiProperty({ example: 4.9, description: 'Рейтинг заказчика' })
+  @Prop({ default: 0 })
+  customer_rating: number;
+
+  @ApiProperty({
+    example: 3,
+    description: 'Отзывов о пользователе как заказчике',
+  })
+  @Prop({ default: 0 })
+  customer_reviews_count: number;
 
   @ApiProperty({ example: 5, description: 'Количество опубликованных заказов' })
   @Prop({ default: 0 })
   orders_count: number;
 
-  @ApiProperty({ example: 5, description: 'Количество отзывов' })
+  @ApiProperty({
+    example: 5,
+    description: 'Отзывов о пользователе как исполнителе',
+  })
   @Prop({ default: 0 })
   reviews_count: number;
 
