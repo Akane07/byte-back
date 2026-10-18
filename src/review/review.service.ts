@@ -126,6 +126,8 @@ export class ReviewService implements OnModuleInit, OnModuleDestroy {
     });
     if (counterpart) {
       await this.publish([review, counterpart]);
+      // publish меняет документы в базе — отдаём клиенту актуальное состояние.
+      review.published = true;
     } else {
       await this.chat.notify(
         authorId,
