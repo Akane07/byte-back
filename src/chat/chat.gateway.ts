@@ -247,7 +247,8 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       this.emitToBoth(message, 'orderUpdated', order.toJSON());
       await this.sendServerMessage(
         message,
-        `Работа по заказу «${order.title}» принята. Заказ завершён.`,
+        `Работа по заказу «${order.title}» принята. Заказ завершён. ` +
+          'Оставьте отзыв друг о друге — это помогает другим выбрать, с кем работать.',
       );
       return;
     }
@@ -361,6 +362,11 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     });
     this.emitToBoth(message, 'orderUpdated', order.toJSON());
     return { orderId: order.id, status: order.status };
+  }
+
+  /** Служебное сообщение в диалоге двух пользователей — для других модулей. */
+  async notify(senderId: string, receiverId: string, text: string) {
+    await this.sendServerMessage({ senderId, receiverId }, text);
   }
 
   private async send(

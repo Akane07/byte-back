@@ -156,6 +156,12 @@ export class OrderService {
 
   async deleteOrder(id: string, userId: string) {
     const order = await this.findOwnOrder(id, userId);
+    // Заказ с исполнителем — уже сделка: на него ссылаются чат и отзывы.
+    if (order.performer) {
+      throw new BadRequestException(
+        'Заказ с исполнителем нельзя удалить — его можно отправить в архив',
+      );
+    }
     await Promise.all([
       order.deleteOne(),
       this.orderResponseModel.deleteMany({ order_id: id }),
@@ -369,6 +375,7 @@ export class OrderService {
       throw new BadRequestException('Работа по заказу не на проверке');
     }
     order.status = accepted ? 'completed' : 'pending';
+    if (accepted) order.completed_at = new Date();
     await order.save();
     return order;
   }

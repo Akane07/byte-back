@@ -18,6 +18,8 @@ import { UserSchema } from '../../src/auth/schemas/user.schema';
 import { MessageSchema } from '../../src/chat/schemas/chat.schema';
 import { OrderResponseSchema, OrderSchema } from '../../src/order/schemas/order.schema';
 import { PortfolioSchema } from '../../src/portfolio/schemas/portfolio.schema';
+import { REVIEW_WINDOW_DAYS, bayesianScore } from '../../src/review/review.service';
+import { ReviewSchema } from '../../src/review/schemas/review.schema';
 import {
   DIALOGS,
   ORDERS,
@@ -26,6 +28,8 @@ import {
   SEED_PASSWORD,
   SUGGESTS,
   USERS,
+  type SeedOrder,
+  type SeedReview,
   type SeedUser,
 } from './data';
 import { avatar, cover } from './png';
@@ -44,6 +48,7 @@ const OrderModel = mongoose.model('Order', OrderSchema);
 const ResponseModel = mongoose.model('OrderResponse', OrderResponseSchema);
 const PortfolioModel = mongoose.model('Portfolio', PortfolioSchema);
 const MessageModel = mongoose.model('Message', MessageSchema);
+const ReviewModel = mongoose.model('Review', ReviewSchema);
 
 /** MONGO_URI из byte-back/.env — тот же адрес, что у сервера. */
 function mongoUri() {
@@ -79,6 +84,7 @@ async function clear() {
   const orders = await OrderModel.find({ user_id: { $in: ids } }, { _id: 1 });
   const orderIds = orders.map((o) => String(o._id));
 
+  await ReviewModel.deleteMany({ $or: [{ author_id: { $in: ids } }, { target_id: { $in: ids } }] });
   const [r, o, p, m, u] = await Promise.all([
     // И отклики тестовых пользователей, и чужие отклики на тестовые заказы.
     ResponseModel.deleteMany({ $or: [{ user_id: { $in: ids } }, { order_id: { $in: orderIds } }] }),
@@ -104,6 +110,54 @@ async function clear() {
     `Удалено: пользователей ${u.deletedCount}, заказов ${o.deletedCount}, откликов ${r.deletedCount}, ` +
       `проектов ${p.deletedCount}, сообщений ${m.deletedCount}, файлов ${files}`,
   );
+}
+
+/**
+ * Отзывы по завершённому заказу. Открыты, как и на сайте, если оценили оба
+ * или окно для отзывов уже закрылось; иначе отзыв «слепой».
+ */
+async function seedReviews(o: SeedOrder, orderId: string, customerId: string, performerId: string, completedAt: Date) {
+  const publishAt = new Date(completedAt.getTime() + REVIEW_WINDOW_DAYS * DAY);
+  const both = !!(o.reviews?.byCustomer && o.reviews?.byPerformer);
+  const published = both || publishAt.getTime() <= now;
+  const write = (author: string, target: string, role: 'performer' | 'customer', [rating, text, reply]: SeedReview, hours: number) =>
+    ReviewModel.create({
+      order_id: orderId,
+      author_id: author,
+      target_id: target,
+      target_role: role,
+      rating,
+      text,
+      reply: reply && published ? { text: reply, created_at: new Date(completedAt.getTime() + (hours + 20) * HOUR) } : undefined,
+      published,
+      publish_at: publishAt,
+      published_at: published ? new Date(Math.min(now, completedAt.getTime() + (both ? hours + 10 : REVIEW_WINDOW_DAYS * 24) * HOUR)) : undefined,
+      created_at: new Date(completedAt.getTime() + hours * HOUR),
+    });
+  if (o.reviews?.byCustomer) await write(customerId, performerId, 'performer', o.reviews.byCustomer, 5);
+  if (o.reviews?.byPerformer) await write(performerId, customerId, 'customer', o.reviews.byPerformer, 9);
+}
+
+/** Рейтинги в профилях — так же, как их считает ReviewService.recalculate. */
+async function recalculateRatings(userIds: string[]) {
+  for (const userId of userIds) {
+    const rows: { _id: string; average: number; count: number }[] = await ReviewModel.aggregate([
+      { $match: { target_id: userId, published: true } },
+      { $group: { _id: '$target_role', average: { $avg: '$rating' }, count: { $sum: 1 } } },
+    ]);
+    const performer = rows.find((r) => r._id === 'performer');
+    const customer = rows.find((r) => r._id === 'customer');
+    await UserModel.updateOne(
+      { _id: userId },
+      {
+        rating: performer ? Math.round(performer.average * 10) / 10 : 0,
+        reviews_count: performer?.count ?? 0,
+        rating_score: performer ? bayesianScore(performer.average, performer.count) : 0,
+        customer_rating: customer ? Math.round(customer.average * 10) / 10 : 0,
+        customer_reviews_count: customer?.count ?? 0,
+      },
+    );
+  }
 }
 
 async function seed() {
@@ -244,7 +298,12 @@ async function seed() {
           await order.save();
           if (state === 'completed') {
             // Как на сайте: исполнитель сдал работу, заказчик её принял.
-            const deliveredAt = new Date(answeredAt.getTime() + 3 * DAY);
+            const deliveredAt = o.completedDaysAgo
+              ? ago(o.completedDaysAgo * DAY + 2 * HOUR)
+              : new Date(answeredAt.getTime() + 3 * DAY);
+            const completedAt = new Date(deliveredAt.getTime() + 2 * HOUR);
+            await OrderModel.updateOne({ _id: order._id }, { completed_at: completedAt });
+            await seedReviews(o, orderId, id[o.owner], id[r.from], completedAt);
             await message({
               senderId: id[r.from],
               receiverId: id[o.owner],
@@ -259,13 +318,15 @@ async function seed() {
               receiverId: id[o.owner],
               text: `Работа по заказу «${o.title}» принята. Заказ завершён.`,
               status: 'server',
-              createdAt: new Date(deliveredAt.getTime() + 2 * HOUR),
+              createdAt: completedAt,
             });
           }
         }
       }
     }
   }
+
+  await recalculateRatings(Object.values(id));
 
   // --- Предложения заказов ---
   for (const s of SUGGESTS) {

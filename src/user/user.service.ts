@@ -50,7 +50,8 @@ export class UserService {
 
   /**
    * Каталог исполнителей: те, кто отметил «Принимаю заказы». Сверху —
-   * с лучшим рейтингом и отзывами, при равенстве — кто недавно заходил.
+   * с лучшим взвешенным рейтингом (см. User.rating_score), при равенстве —
+   * с большим числом отзывов, затем кто недавно заходил.
    */
   async getSpecialists(query: SpecialistsQueryDto) {
     const { page, q, categories, format, city } = query;
@@ -76,7 +77,7 @@ export class UserService {
     const [users, total] = await Promise.all([
       this.userModel
         .find(filter)
-        .sort({ rating: -1, reviews_count: -1, last_seen: -1, _id: 1 })
+        .sort({ rating_score: -1, reviews_count: -1, last_seen: -1, _id: 1 })
         .skip((page - 1) * SPECIALISTS_PAGE_SIZE)
         .limit(SPECIALISTS_PAGE_SIZE),
       this.userModel.countDocuments(filter),

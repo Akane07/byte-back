@@ -111,15 +111,38 @@ export class User {
   @Prop({ default: Date.now })
   created_at: Date;
 
-  @ApiProperty({ example: 5, description: 'Рейтинг' })
+  /** Средняя оценка как исполнителя (0 — отзывов нет). Считает ReviewService. */
+  @ApiProperty({ example: 4.8, description: 'Рейтинг исполнителя' })
   @Prop({ default: 0 })
   rating: number;
+
+  /**
+   * Рейтинг для сортировки каталога — байесовское среднее: при малом числе
+   * отзывов он тянется к средней оценке по площадке. Иначе один отзыв на 5★
+   * стоял бы выше сотни отзывов на 4.9★.
+   */
+  @Prop({ default: 0, index: true })
+  rating_score: number;
+
+  @ApiProperty({ example: 4.9, description: 'Рейтинг заказчика' })
+  @Prop({ default: 0 })
+  customer_rating: number;
+
+  @ApiProperty({
+    example: 3,
+    description: 'Отзывов о пользователе как заказчике',
+  })
+  @Prop({ default: 0 })
+  customer_reviews_count: number;
 
   @ApiProperty({ example: 5, description: 'Количество опубликованных заказов' })
   @Prop({ default: 0 })
   orders_count: number;
 
-  @ApiProperty({ example: 5, description: 'Количество отзывов' })
+  @ApiProperty({
+    example: 5,
+    description: 'Отзывов о пользователе как исполнителе',
+  })
   @Prop({ default: 0 })
   reviews_count: number;
 

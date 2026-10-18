@@ -139,6 +139,11 @@ export class Order {
   @Prop()
   address?: string;
 
+  /** Когда заказчик принял работу. От этой даты отсчитывается окно для отзывов. */
+  @ApiProperty({ required: false, description: 'Дата завершения' })
+  @Prop()
+  completed_at?: Date;
+
   @ApiProperty({ example: false, description: 'Срочный заказ' })
   @Prop({ default: false })
   urgent: boolean;
