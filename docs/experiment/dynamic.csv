@@ -1,0 +1,4 @@
+mode,newcomersServed,medianFirstOrder,newcomerOrderShare,giniOrders,meanChosenQ
+legacy,0.099237,Infinity,0.213,0.931077,4.92685
+weighted-base,0,Infinity,0,0.925723,4.627477
+weighted,0.778626,1307,0.389,0.88253,4.555633

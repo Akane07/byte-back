@@ -24,6 +24,12 @@ import {
   generateQueries,
   runStatic,
 } from './static';
+import {
+  COMPLETE_AFTER,
+  DYNAMIC_ORDERS,
+  generateOrderCategories,
+  runDynamic,
+} from './dynamic';
 
 const SEED = 20261019;
 const OUT_DIR = join(__dirname, '../../docs/experiment');
@@ -40,15 +46,46 @@ function main() {
   const staticRows = runStatic(population, queries);
   writeCsv('static.csv', staticRows);
 
+  const orderCategories = generateOrderCategories(mulberry32(SEED + 2));
+  const dynamicRows = runDynamic(population, orderCategories, SEED + 3);
+  writeCsv('dynamic.csv', dynamicRows);
+
   const sections = [
     populationSection(populationSummary(population)),
     staticSection(staticRows),
+    dynamicSection(dynamicRows),
   ];
   writeResults(sections);
   console.log(`Готово, результаты в ${OUT_DIR}`);
 }
 
 const pct = (x: number) => `${(x * 100).toFixed(1)}%`;
+const orderNo = (x: number) =>
+  Number.isFinite(x) ? String(x) : `> ${DYNAMIC_ORDERS}`;
+
+function dynamicSection(rows: ReturnType<typeof runDynamic>) {
+  const base = rows.find((r) => r.mode === 'legacy')!;
+  return [
+    '## 3.3 Динамическая симуляция',
+    '',
+    `${DYNAMIC_ORDERS} заказов подряд, случайная категория, выдача каталога. ` +
+      `Заказчик выбирает из топ-${TOP_K} с вероятностью ∝ exposure(позиция) · (0,5 + 0,5·Q). ` +
+      `Заказ завершается через ${COMPLETE_AFTER} заказов, отзыв — с вероятностью ${MODEL.reviewRate}. ` +
+      'Все режимы — на одной популяции, одной последовательности категорий и одном seed выбора.',
+    '',
+    '| Режим | Новичков с заказом | Медиана до первого заказа | Доля заказов у новичков | Джини по заказам | Истинное q выбранных (к legacy) |',
+    '|---|---|---|---|---|---|',
+    ...rows.map(
+      (r) =>
+        `| ${r.mode} | ${pct(r.newcomersServed)} | ${orderNo(r.medianFirstOrder)} | ` +
+        `${pct(r.newcomerOrderShare)} | ${fmt(r.giniOrders)} | ` +
+        `${fmt(r.meanChosenQ)} (${signedPct(r.meanChosenQ / base.meanChosenQ - 1)}) |`,
+    ),
+    '',
+    'Новичок — на старте симуляции. «Медиана до первого заказа» — номер заказа, ' +
+      `к которому первый заказ получила половина стартовых новичков; «> ${DYNAMIC_ORDERS}» — половина так и не получила.`,
+  ].join('\n');
+}
 
 function staticSection(rows: ReturnType<typeof runStatic>) {
   const table = (kind: QueryKind) => {
