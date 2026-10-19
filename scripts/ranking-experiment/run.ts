@@ -270,7 +270,7 @@ const SUMMARY_METRICS: {
   },
   {
     key: 'recommendNoReviewShare',
-    title: 'из них без отзывов (подбор), %',
+    title: 'Новички без отзывов в топ-10 подбора, % мест',
     scale: 100,
     digits: 1,
   },
@@ -302,6 +302,12 @@ const SUMMARY_METRICS: {
   {
     key: 'recommendMeanQ',
     title: 'Истинное качество топ-10 подбора, балл 1–5',
+    scale: 1,
+    digits: 2,
+  },
+  {
+    key: 'meanChosenQ',
+    title: 'Истинное качество выбранных исполнителей (динамика), балл 1–5',
     scale: 1,
     digits: 2,
   },
