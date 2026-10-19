@@ -4,6 +4,7 @@ import { FilterQuery, Model } from 'mongoose';
 import { AuthService } from '../auth/auth.service';
 import { escapeRegExp } from '../common/escape-regexp';
 import { User, UserDocument } from '../auth/schemas/user.schema';
+import { Order } from '../order/schemas/order.schema';
 import { Ranked, RankingService } from '../ranking/ranking.service';
 import {
   SPECIALISTS_PAGE_SIZE,
@@ -114,6 +115,28 @@ export class UserService {
       total,
       page,
     );
+  }
+
+  /**
+   * Подбор под заказ (docs/ranking.md, раздел про R): жёсткие фильтры —
+   * принимает заказы, не автор, совместимый формат (на месте — тот же город),
+   * общая категория или навык; порядок — score с R и квота для новичков.
+   */
+  async getOrderCandidates(order: Order) {
+    const onsite = order.work_format === 'onsite';
+    const match: FilterQuery<User>[] = [];
+    if (order.category != null) match.push({ categories: order.category });
+    if (order.skills?.length) match.push({ skills: { $in: order.skills } });
+    if (!match.length || (onsite && !order.city)) return [];
+
+    const users = await this.userModel.find({
+      is_performer: true,
+      _id: { $ne: order.user_id },
+      work_format: { $in: [onsite ? 'onsite' : 'remote', 'both'] },
+      ...(onsite && { city: order.city }),
+      $or: match,
+    });
+    return this.rankingService.rank(users.map(toPublicUser), order);
   }
 
   /** Время последнего визита — при входе в чат и выходе из него. */
