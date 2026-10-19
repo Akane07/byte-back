@@ -1,6 +1,6 @@
 import { OrderContext } from '../../src/ranking/ranking.math';
 import { TOP_K, exposureAt, gini, mean } from './metrics';
-import { MODES, Mode, RankParams, rank } from './modes';
+import { Mode, RankParams, rank } from './modes';
 import { MODEL, Performer, categorySkills, newcomer } from './population';
 import { Rng, randInt, sample } from './rng';
 
@@ -103,18 +103,4 @@ export function evaluateStatic(
     meanQ: mean(qs),
     meanR: rs.length ? mean(rs) : undefined,
   };
-}
-
-export function runStatic(
-  population: Performer[],
-  queries: Record<QueryKind, Query[]>,
-  params: RankParams,
-) {
-  return (['catalog', 'recommend'] as QueryKind[]).flatMap((kind) =>
-    MODES.map((mode) => ({
-      kind,
-      mode,
-      ...evaluateStatic(population, queries[kind], mode, params),
-    })),
-  );
 }

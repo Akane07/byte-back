@@ -1,6 +1,6 @@
 import { quality } from '../../src/ranking/ranking.math';
 import { TOP_K, exposureAt, gini, mean, median } from './metrics';
-import { MODES, Mode, RankParams, rank } from './modes';
+import { Mode, RankParams, rank } from './modes';
 import { MODEL, Performer, addRating, newcomer } from './population';
 import { Rng, mulberry32, randInt, weightedIndex } from './rng';
 import { candidatesFor } from './static';
@@ -8,6 +8,8 @@ import { candidatesFor } from './static';
 export const DYNAMIC_ORDERS = 2000;
 /** Заказ завершается, когда после него размещено столько новых заказов. */
 export const COMPLETE_AFTER = 20;
+/** Шаг таймлайна: доля новичков с заказом фиксируется после каждых стольких заказов. */
+export const TIMELINE_STEP = 50;
 
 export interface DynamicMetrics {
   /** Доля стартовых новичков, получивших хотя бы один заказ. */
@@ -20,6 +22,8 @@ export interface DynamicMetrics {
   giniOrders: number;
   /** Среднее истинное q выбранных исполнителей — выгода заказчика. */
   meanChosenQ: number;
+  /** newcomersServed после каждых TIMELINE_STEP заказов. */
+  timeline: number[];
 }
 
 export const generateOrderCategories = (rng: Rng) =>
@@ -42,6 +46,8 @@ export function simulate(
   const pending: { performer: Performer; at: number }[] = [];
   const chosenQ: number[] = [];
   let newcomerOrders = 0;
+  let newcomersServed = 0;
+  const timeline: number[] = [];
 
   categories.forEach((category, t) => {
     while (pending.length && pending[0].at === t) {
@@ -67,34 +73,27 @@ export function simulate(
 
     chosen.inProgress++;
     received.set(chosen.id, received.get(chosen.id)! + 1);
-    if (!firstOrder.has(chosen.id)) firstOrder.set(chosen.id, t + 1);
+    if (!firstOrder.has(chosen.id)) {
+      firstOrder.set(chosen.id, t + 1);
+      if (startNewcomers.has(chosen.id)) newcomersServed++;
+    }
     if (startNewcomers.has(chosen.id)) newcomerOrders++;
     chosenQ.push(chosen.q);
     pending.push({ performer: chosen, at: t + COMPLETE_AFTER });
+    if ((t + 1) % TIMELINE_STEP === 0) {
+      timeline.push(newcomersServed / startNewcomers.size);
+    }
   });
 
   const newcomerIds = [...startNewcomers];
   return {
-    newcomersServed:
-      newcomerIds.filter((id) => firstOrder.has(id)).length /
-      newcomerIds.length,
+    newcomersServed: newcomersServed / newcomerIds.length,
     medianFirstOrder: median(
       newcomerIds.map((id) => firstOrder.get(id) ?? Infinity),
     ),
     newcomerOrderShare: newcomerOrders / categories.length,
     giniOrders: gini([...received.values()]),
     meanChosenQ: mean(chosenQ),
+    timeline,
   };
-}
-
-export function runDynamic(
-  population: Performer[],
-  categories: number[],
-  seed: number,
-  params: RankParams,
-) {
-  return MODES.map((mode) => ({
-    mode,
-    ...simulate(population, categories, mode, seed, params),
-  }));
 }
