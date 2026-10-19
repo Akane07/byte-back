@@ -39,9 +39,11 @@ export function evaluate(input: Inputs, mode: Mode, params: RankParams) {
   );
   return {
     catalogNewcomerShare: cat.newcomerShare,
+    catalogNoReviewShare: cat.noReviewNewcomerShare,
     catalogGini: cat.giniExposure,
     catalogMeanQ: cat.meanQ,
     recommendNewcomerShare: rec.newcomerShare,
+    recommendNoReviewShare: rec.noReviewNewcomerShare,
     recommendGini: rec.giniExposure,
     recommendMeanQ: rec.meanQ,
     recommendMeanR: rec.meanR!,

@@ -1,7 +1,7 @@
-kind,mode,newcomerShare,noReviewNewcomerShare,giniExposure,topExperiencedShare,meanQ,meanR
-catalog,legacy,0.2595,0,0.938139,0.281542,4.829236,
-catalog,weighted-base,0,0,0.935941,0.25314,4.531755,
-catalog,weighted,0.252,0,0.932204,0.139734,4.566226,
-recommend,legacy,0.274,0,0.937215,0.279521,4.826391,0.786195
-recommend,weighted-base,0.033,0,0.892156,0.201556,4.460093,0.90413
-recommend,weighted,0.312,0.0515,0.874182,0.098136,4.4252,0.924217
+﻿Вид запроса (catalog — каталог, recommend — подбор);Режим;Новичков в топ-10, %;Новичков без отзывов в топ-10, %;Джини видимости, 0–1;Видимость у 10% самых опытных, %;Истинное качество топ-10, балл 1–5;Соответствие заказу R топ-10, 0–1
+catalog;legacy;25,95;0;0,9381;28,1542;4,8292;
+catalog;weighted-base;0;0;0,9359;25,314;4,5318;
+catalog;weighted;25,2;0;0,9322;13,9734;4,5662;
+recommend;legacy;27,4;0;0,9372;27,9521;4,8264;0,7862
+recommend;weighted-base;3,3;0;0,8922;20,1556;4,4601;0,9041
+recommend;weighted;31,2;5,15;0,8742;9,8136;4,4252;0,9242

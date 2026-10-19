@@ -121,28 +121,26 @@ function pickGroup(position: number) {
   return MODEL.experienceGroups[MODEL.experienceGroups.length - 1];
 }
 
-export function populationCsv(performers: Performer[]) {
-  const header =
-    'id,group,q,completed,in_progress,reviews_count,avg_rating,rating_score,eligible,newcomer,days_since_visit,categories,skills,price_from';
-  const rows = performers.map((p) =>
-    [
-      p.id,
-      p.group,
-      p.q.toFixed(3),
-      p.completed,
-      p.inProgress,
-      p.reviewsCount,
-      p.reviewsCount ? (p.ratingSum / p.reviewsCount).toFixed(3) : '',
-      p.ratingScore.toFixed(3),
-      p.eligible ? 1 : 0,
-      newcomer(p) ? 1 : 0,
-      p.daysSinceVisit.toFixed(2),
-      p.categories.join(' '),
-      p.skills.join(' '),
-      p.priceFrom,
-    ].join(','),
-  );
-  return [header, ...rows].join('\n') + '\n';
+/** Строки population.csv: русские заголовки с единицами. */
+export function populationRows(performers: Performer[]) {
+  return performers.map((p) => ({
+    Исполнитель: p.id,
+    'Группа опыта (low 0–4, mid 5–30, high 30–200 заказов)': p.group,
+    'Истинное качество q, балл 1–5': p.q,
+    'Завершено заказов, шт.': p.completed,
+    'В работе, шт.': p.inProgress,
+    'Отзывов, шт.': p.reviewsCount,
+    'Средняя оценка, балл 1–5 (пусто — нет отзывов)': p.reviewsCount
+      ? p.ratingSum / p.reviewsCount
+      : '',
+    'rating_score (байесовский, 0 — нет отзывов), балл': p.ratingScore,
+    'Профиль заполнен (eligible), 1/0': p.eligible ? 1 : 0,
+    'Новичок, 1/0': newcomer(p) ? 1 : 0,
+    'Дней с последнего визита': p.daysSinceVisit,
+    'Категории (номера 0–3)': p.categories.join(' '),
+    Навыки: p.skills.join(' '),
+    'Цена «от», ₽': p.priceFrom,
+  }));
 }
 
 /** Сводка для проверки адекватности модели. */

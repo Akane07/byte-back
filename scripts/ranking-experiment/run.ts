@@ -11,10 +11,11 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
+import { writeCsv } from './csv';
 import { COMPLETE_AFTER, DYNAMIC_ORDERS, runDynamic } from './dynamic';
 import { TOP_K, mean } from './metrics';
 import { FINAL_PARAMS, START_PARAMS } from './modes';
-import { MODEL, populationCsv, populationSummary } from './population';
+import { MODEL, populationRows, populationSummary } from './population';
 import { VARIANTS, inputsForSeed, runSeeds } from './seeds';
 import {
   Evaluation,
@@ -43,28 +44,30 @@ function main() {
   mkdirSync(OUT_DIR, { recursive: true });
   const input = inputsForSeed(SEED);
   const { population, queries, orderCategories, dynamicSeed } = input;
-  writeFileSync(join(OUT_DIR, 'population.csv'), populationCsv(population));
+  csv('population.csv', populationRows(population));
 
   const staticRows = runStatic(population, queries, START_PARAMS);
-  writeCsv('static.csv', staticRows);
+  csv('static.csv', staticRows);
   const dynamicRows = runDynamic(
     population,
     orderCategories,
     dynamicSeed,
     START_PARAMS,
   );
-  writeCsv('dynamic.csv', dynamicRows);
+  csv('dynamic.csv', dynamicRows);
 
   const legacy = evaluate(input, 'legacy', START_PARAMS);
   const sensitivityRows = runSensitivity(input);
-  writeCsv('sensitivity.csv', sensitivityRows);
+  csv('sensitivity.csv', sensitivityRows);
   const weightRows = runWeights(input);
-  writeCsv('weights.csv', weightRows);
+  csv('weights.csv', weightRows);
 
   const seedRows = runSeeds(SEEDS);
-  writeCsv('seeds.csv', seedRows);
+  csv('seeds.csv', seedRows);
+  csv('summary.csv', summaryRows(seedRows));
 
   writeResults([
+    summarySection(seedRows),
     populationSection(populationSummary(population)),
     staticSection(staticRows),
     dynamicSection(dynamicRows),
@@ -246,6 +249,123 @@ function weightsSection(legacy: Evaluation, rows: WeightRow[]) {
   ].join('\n');
 }
 
+/** Метрики итоговой таблицы: заголовок с единицами, множитель, знаков после запятой. */
+const SUMMARY_METRICS: {
+  key: keyof SeedRow;
+  title: string;
+  scale: number;
+  digits: number;
+}[] = [
+  {
+    key: 'catalogNewcomerShare',
+    title: 'Новичков в топ-10 каталога, %',
+    scale: 100,
+    digits: 1,
+  },
+  {
+    key: 'recommendNewcomerShare',
+    title: 'Новичков в топ-10 подбора, %',
+    scale: 100,
+    digits: 1,
+  },
+  {
+    key: 'recommendNoReviewShare',
+    title: 'из них без отзывов (подбор), %',
+    scale: 100,
+    digits: 1,
+  },
+  {
+    key: 'newcomersServed',
+    title: 'Новичков с первым заказом, %',
+    scale: 100,
+    digits: 1,
+  },
+  {
+    key: 'medianFirstOrder',
+    title: 'Медиана до первого заказа, № заказа',
+    scale: 1,
+    digits: 0,
+  },
+  {
+    key: 'recommendGini',
+    title: 'Джини видимости (подбор), 0–1',
+    scale: 1,
+    digits: 3,
+  },
+  { key: 'giniOrders', title: 'Джини по заказам, 0–1', scale: 1, digits: 3 },
+  {
+    key: 'catalogMeanQ',
+    title: 'Истинное качество топ-10 каталога, балл 1–5',
+    scale: 1,
+    digits: 2,
+  },
+  {
+    key: 'recommendMeanQ',
+    title: 'Истинное качество топ-10 подбора, балл 1–5',
+    scale: 1,
+    digits: 2,
+  },
+];
+
+/** Число для текста главы: десятичная запятая; Infinity — «> 2000» (половина не получила заказ). */
+const ru = (x: number, digits: number) =>
+  Number.isFinite(x)
+    ? x.toFixed(digits).replace('.', ',')
+    : `> ${DYNAMIC_ORDERS}`;
+
+function seedStats(rows: SeedRow[], variant: string, key: keyof SeedRow) {
+  const values = rows
+    .filter((r) => r.variant === variant)
+    .map((r) => r[key] as number);
+  return {
+    avg: values.every(Number.isFinite) ? mean(values) : Infinity,
+    lo: Math.min(...values),
+    hi: Math.max(...values),
+  };
+}
+
+function summarySection(rows: SeedRow[]) {
+  const lines = VARIANTS.map((variant) => {
+    const cells = SUMMARY_METRICS.map(({ key, scale, digits }) => {
+      const { avg, lo, hi } = seedStats(rows, variant, key);
+      return `${ru(avg * scale, digits)} [${ru(lo * scale, digits)} – ${ru(hi * scale, digits)}]`;
+    });
+    return `| ${variant} | ${cells.join(' | ')} |`;
+  });
+  return [
+    '## Итоговая таблица (для главы 3)',
+    '',
+    '**Новичок** — исполнитель с заполненным профилем (eligible) и меньше 5 завершённых заказов. ' +
+      'Определение одно для всех режимов и таблиц; в статике статус берётся на момент запроса, ' +
+      'в динамике — на старте симуляции.',
+    '',
+    `Финальные параметры: ${params(FINAL_PARAMS)}. В клетке — среднее по ${SEEDS.length} seed и [минимум – максимум]. ` +
+      `Статика — по ${STATIC_QUERIES} запросов каталога и подбора (раздел 3.2), динамика — ${DYNAMIC_ORDERS} заказов (раздел 3.3). ` +
+      `«> ${DYNAMIC_ORDERS}» — к концу симуляции первый заказ не получила и половина новичков. ` +
+      '`weighted-prior` — контроль: Q с априорным средним, равным средней оценке платформы (раздел 3.5). ' +
+      'Те же числа — в summary.csv, по каждому seed — в seeds.csv.',
+    '',
+    `| Режим | ${SUMMARY_METRICS.map((m) => m.title).join(' | ')} |`,
+    `|---|${SUMMARY_METRICS.map(() => '---').join('|')}|`,
+    ...lines,
+  ].join('\n');
+}
+
+function summaryRows(rows: SeedRow[]) {
+  return VARIANTS.flatMap((variant) =>
+    SUMMARY_METRICS.map(({ key, title, scale }) => {
+      const { avg, lo, hi } = seedStats(rows, variant, key);
+      return {
+        Режим: variant,
+        Показатель: title,
+        Среднее: avg * scale,
+        Минимум: lo * scale,
+        Максимум: hi * scale,
+      };
+    }),
+  );
+}
+
 /** «среднее [мин–макс]» по seed. */
 function spread(values: number[], show: (x: number) => string) {
   const lo = Math.min(...values);
@@ -256,18 +376,6 @@ function spread(values: number[], show: (x: number) => string) {
 
 function seedsSection(rows: SeedRow[]) {
   const of = (variant: string) => rows.filter((r) => r.variant === variant);
-  const metricLines = VARIANTS.map((variant) => {
-    const rs = of(variant);
-    const col = (f: (r: SeedRow) => number, show: (x: number) => string) =>
-      spread(rs.map(f), show);
-    return (
-      `| ${variant} | ${col((r) => r.recommendNewcomerShare, pct)} | ` +
-      `${col((r) => r.recommendGini, fmt)} | ${col((r) => r.recommendMeanQ, fmt)} | ` +
-      `${col((r) => r.newcomersServed, pct)} | ${col((r) => r.medianFirstOrder, orderNo)} | ` +
-      `${col((r) => r.giniOrders, fmt)} | ${col((r) => r.meanChosenQ, fmt)} |`
-    );
-  });
-
   const compare = (label: string, a: string, b: string) => {
     const ratios = (f: (r: SeedRow) => number) =>
       SEEDS.map((seed) => {
@@ -300,11 +408,7 @@ function seedsSection(rows: SeedRow[]) {
       `средним, равным средней оценке платформы этого seed (${fmt(Math.min(...priors), 2)}–${fmt(Math.max(...priors), 2)}), ` +
       'а не 4,5. Код рейтинга сайта не меняется, выбор заказчика в динамике по-прежнему видит рейтинг сайта.',
     '',
-    '| Режим | Новичков в топ-10 | Джини видимости | Истинное q топ-10 | Новичков с заказом | Медиана до первого заказа | Джини по заказам | Истинное q выбранных |',
-    '|---|---|---|---|---|---|---|---|',
-    ...metricLines,
-    '',
-    'Статические метрики — по запросам подбора под заказ, динамические — по симуляции 3.3.',
+    'Значения метрик по режимам — в итоговой таблице в начале файла.',
     '',
     '### Потеря истинного качества по seed',
     '',
@@ -329,16 +433,8 @@ function seedsSection(rows: SeedRow[]) {
   ].join('\n');
 }
 
-function writeCsv(name: string, rows: Record<string, unknown>[]) {
-  const columns = Object.keys(rows[0]);
-  const cell = (v: unknown) =>
-    typeof v === 'number' ? String(+v.toFixed(6)) : String(v ?? '');
-  const lines = rows.map((r) => columns.map((c) => cell(r[c])).join(','));
-  writeFileSync(
-    join(OUT_DIR, name),
-    [columns.join(','), ...lines].join('\n') + '\n',
-  );
-}
+const csv = (name: string, rows: Record<string, unknown>[]) =>
+  writeCsv(join(OUT_DIR, name), rows);
 
 function writeResults(sections: string[]) {
   const file = join(OUT_DIR, 'results.md');
