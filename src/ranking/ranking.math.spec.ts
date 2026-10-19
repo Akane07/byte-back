@@ -2,6 +2,7 @@ import { N_NEW, WEIGHTS } from './ranking.constants';
 import {
   activity,
   compareRanked,
+  contributions,
   effectiveWeights,
   experience,
   experienceAdvanced,
@@ -10,6 +11,7 @@ import {
   ProfileFields,
   quality,
   Rankable,
+  relevance,
   rerankWithNewcomerQuota,
   score,
   workload,
@@ -154,6 +156,16 @@ describe('score', () => {
     expect(score({ ...best, L: 1 })).toBeCloseTo(1 - WEIGHTS.L);
     expect(score({ ...best, R: 1 })).toBeCloseTo(1);
   });
+
+  it('сумма вкладов равна score — с R и без', () => {
+    const f = { Q: 0.8, E: 0.2, Eadv: 0.6, A: 0.4, L: 2 / 3 };
+    for (const factors of [f, { ...f, R: 0.7 }]) {
+      const c = contributions(factors);
+      expect(c.Q + c.R + c.E + c.A + c.L).toBeCloseTo(score(factors), 12);
+      expect(c.L).toBeLessThan(0);
+    }
+    expect(contributions(f).R).toBe(0);
+  });
 });
 
 const item = (
@@ -289,5 +301,63 @@ describe('квота для новичков', () => {
     expect(ranked.map((x) => x.id)).toEqual(
       [...list].sort(compareRanked).map((x) => x.id),
     );
+  });
+});
+
+describe('relevance', () => {
+  const performer = {
+    categories: [1],
+    skills: ['Vue', 'Nuxt'],
+    price_from: 1500,
+  };
+  const fixed = (price: number | { from: number; to: number }) => ({
+    category: 1,
+    skills: ['Vue', 'Nuxt', 'Figma', 'SEO'],
+    price,
+    price_type: 'fixed' as const,
+  });
+
+  it('у заказа нет навыков — skills = cat', () => {
+    const order = { ...fixed(5000), skills: [] };
+    expect(relevance(order, performer)).toBeCloseTo(1);
+    expect(relevance({ ...order, category: 2 }, performer)).toBeCloseTo(0.15);
+  });
+
+  it('категория и 2 из 4 навыков, цена в бюджете', () => {
+    expect(relevance(fixed(5000), performer)).toBeCloseTo(
+      0.5 + 0.35 * 0.5 + 0.15,
+    );
+  });
+
+  it('цена выше бюджета снижает price, в два раза выше — до 0', () => {
+    const base = 0.5 + 0.35 * 0.5;
+    expect(relevance(fixed(1000), performer)).toBeCloseTo(base + 0.15 * 0.5);
+    expect(relevance(fixed(750), performer)).toBeCloseTo(base);
+  });
+
+  it('договорная и почасовая цена, цена «от» не указана — price = 1', () => {
+    const full = 0.5 + 0.35 * 0.5 + 0.15;
+    expect(
+      relevance({ ...fixed(100), price_type: 'contract' }, performer),
+    ).toBeCloseTo(full);
+    expect(
+      relevance({ ...fixed(100), price_type: 'hourly' }, performer),
+    ).toBeCloseTo(full);
+    expect(
+      relevance(fixed(100), { ...performer, price_from: undefined }),
+    ).toBeCloseTo(full);
+  });
+
+  it('диапазон: бюджет — верхняя граница, без неё — нижняя', () => {
+    const base = 0.5 + 0.35 * 0.5;
+    expect(relevance(fixed({ from: 500, to: 1500 }), performer)).toBeCloseTo(
+      base + 0.15,
+    );
+    expect(
+      relevance(
+        fixed({ from: 1000 } as { from: number; to: number }),
+        performer,
+      ),
+    ).toBeCloseTo(base + 0.15 * 0.5);
   });
 });

@@ -127,10 +127,14 @@ export function relevance(
     ? orderSkills.filter((s) => own.has(s)).length / orderSkills.length
     : cat;
 
-  const budget = typeof order.price === 'number' ? order.price : order.price.to;
+  const budget =
+    typeof order.price === 'number'
+      ? order.price
+      : (order.price.to ?? order.price.from);
   const asked = performer.price_from;
+  // почасовую ставку с ценой «от» за работу не сравниваем
   const price =
-    order.price_type === 'contract' || asked === undefined || !(budget > 0)
+    order.price_type !== 'fixed' || asked === undefined || !(budget > 0)
       ? 1
       : asked <= budget
         ? 1
@@ -165,6 +169,18 @@ export function effectiveWeights(withRelevance: boolean, weights = WEIGHTS) {
     E: weights.E / sum,
     A: weights.A / sum,
     L: weights.L,
+  };
+}
+
+/** Вклад каждого фактора в score (штраф L — со знаком минус); сумма равна score. */
+export function contributions(f: Factors, weights = WEIGHTS) {
+  const w = effectiveWeights(f.R !== undefined, weights);
+  return {
+    Q: w.Q * f.Q,
+    R: w.R * (f.R ?? 0),
+    E: w.E * f.Eadv,
+    A: w.A * f.A,
+    L: -w.L * f.L,
   };
 }
 

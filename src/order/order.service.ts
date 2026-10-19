@@ -7,12 +7,14 @@ import {
 import { InjectModel } from '@nestjs/mongoose';
 import { FilterQuery, Model } from 'mongoose';
 import { escapeRegExp } from '../common/escape-regexp';
+import { contributions } from '../ranking/ranking.math';
 import { UserService } from '../user/user.service';
 import {
   CreateOrderDto,
   OrderListQueryDto,
   UpdateOrderDto,
 } from './dto/create-order.dto';
+import { RecommendationsQueryDto } from './dto/recommendations-query.dto';
 import {
   Order,
   OrderDocument,
@@ -211,6 +213,45 @@ export class OrderService {
     return this.orderResponseModel
       .find({ order_id: orderId })
       .sort({ created_at: -1 });
+  }
+
+  /**
+   * Подбор исполнителей под свой заказ. Чужой заказ — 403 (чужой черновик —
+   * 404, как в getOrder); не опубликованный в статусе active — пустой список.
+   */
+  async getRecommendations(
+    orderId: string,
+    userId: string,
+    { limit, explain }: RecommendationsQueryDto,
+  ) {
+    const order = await this.getOrder(orderId, userId);
+    if (order.user_id !== userId) {
+      throw new ForbiddenException('Подбор доступен только автору заказа');
+    }
+    if (order.status !== 'active' || !order.is_active || order.draft) return [];
+
+    const ranked = (await this.userService.getOrderCandidates(order)).slice(
+      0,
+      limit,
+    );
+    const responded = new Set(
+      (
+        await this.orderResponseModel
+          .find({
+            order_id: orderId,
+            user_id: { $in: ranked.map((r) => r.candidate.id) },
+          })
+          .select('user_id')
+      ).map((r) => r.user_id),
+    );
+    return ranked.map(({ candidate, ranking }) => ({
+      ...candidate,
+      isNewcomer: ranking.isNewcomer,
+      alreadyResponded: responded.has(candidate.id),
+      ...(explain && {
+        ranking: { ...ranking, contributions: contributions(ranking.factors) },
+      }),
+    }));
   }
 
   /** Свой отклик на заказ или null, если откликов не было. */

@@ -20,6 +20,7 @@ import {
   OrderListQueryDto,
   UpdateOrderDto,
 } from './dto/create-order.dto';
+import { RecommendationsQueryDto } from './dto/recommendations-query.dto';
 import { OrderService } from './order.service';
 import { Order, OrderResponse } from './schemas/order.schema';
 
@@ -160,6 +161,23 @@ export class OrderController {
     @Param('id', ParseObjectIdPipe) id: string,
   ) {
     return this.orderService.getOrderResponses(id, userId);
+  }
+
+  @Get(':id/recommendations')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({
+    summary: 'Подходящие исполнители для своего заказа',
+    description:
+      'Только автору (иначе 403) и только для опубликованного заказа в статусе ' +
+      'active (иначе пустой список). Порядок — score с соответствием заказу R ' +
+      'и квота для новичков (docs/ranking.md)',
+  })
+  getRecommendations(
+    @UserId() userId: string,
+    @Param('id', ParseObjectIdPipe) id: string,
+    @Query() query: RecommendationsQueryDto,
+  ) {
+    return this.orderService.getRecommendations(id, userId, query);
   }
 
   @Get(':id/response')
