@@ -1,0 +1,7 @@
+kind,mode,newcomerShare,noReviewNewcomerShare,giniExposure,topExperiencedShare,meanQ,meanR
+catalog,legacy,0.2595,0,0.938139,0.281542,4.829236,
+catalog,weighted-base,0,0,0.935941,0.25314,4.531755,
+catalog,weighted,0.252,0,0.932204,0.139734,4.566226,
+recommend,legacy,0.274,0,0.937215,0.279521,4.826391,0.786195
+recommend,weighted-base,0.033,0,0.892156,0.201556,4.460093,0.90413
+recommend,weighted,0.312,0.0515,0.874182,0.098136,4.4252,0.924217

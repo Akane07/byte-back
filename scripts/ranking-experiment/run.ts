@@ -16,6 +16,14 @@ import {
   populationCsv,
   populationSummary,
 } from './population';
+import { DEFAULT_PARAMS } from './modes';
+import { TOP_K } from './metrics';
+import {
+  QueryKind,
+  STATIC_QUERIES,
+  generateQueries,
+  runStatic,
+} from './static';
 
 const SEED = 20261019;
 const OUT_DIR = join(__dirname, '../../docs/experiment');
@@ -28,9 +36,71 @@ function main() {
   const population = generatePopulation(mulberry32(SEED));
   writeFileSync(join(OUT_DIR, 'population.csv'), populationCsv(population));
 
-  const sections = [populationSection(populationSummary(population))];
+  const queries = generateQueries(mulberry32(SEED + 1));
+  const staticRows = runStatic(population, queries);
+  writeCsv('static.csv', staticRows);
+
+  const sections = [
+    populationSection(populationSummary(population)),
+    staticSection(staticRows),
+  ];
   writeResults(sections);
   console.log(`Готово, результаты в ${OUT_DIR}`);
+}
+
+const pct = (x: number) => `${(x * 100).toFixed(1)}%`;
+
+function staticSection(rows: ReturnType<typeof runStatic>) {
+  const table = (kind: QueryKind) => {
+    const ofKind = rows.filter((r) => r.kind === kind);
+    const base = ofKind.find((r) => r.mode === 'legacy')!;
+    return ofKind.map((r) =>
+      [
+        r.mode,
+        pct(r.newcomerShare),
+        pct(r.noReviewNewcomerShare),
+        fmt(r.giniExposure),
+        pct(r.topExperiencedShare),
+        `${fmt(r.meanQ)} (${signedPct(r.meanQ / base.meanQ - 1)})`,
+        ...(kind === 'recommend' ? [fmt(r.meanR!)] : []),
+      ].join(' | '),
+    );
+  };
+  const head =
+    '| Режим | Новичков в топ-10 | из них без отзывов | Джини видимости | Видимость у топ-10% опытных | Истинное q топ-10 (к legacy)';
+  return [
+    '## 3.2 Статическое сравнение',
+    '',
+    `По ${STATIC_QUERIES} запросов каждого вида, топ-${TOP_K}. ` +
+      '`weighted-base` — ступень 1 при α = 0 без квоты; `weighted` — обе ступени, ' +
+      `α = ${DEFAULT_PARAMS.alpha}, p = ${DEFAULT_PARAMS.p}.`,
+    '',
+    '### Каталог (случайная категория)',
+    '',
+    `${head} |`,
+    '|---|---|---|---|---|---|',
+    ...table('catalog').map((row) => `| ${row} |`),
+    '',
+    '### Подбор под заказ (категория, 1–3 навыка, бюджет)',
+    '',
+    `${head} | Средний R топ-10 |`,
+    '|---|---|---|---|---|---|---|',
+    ...table('recommend').map((row) => `| ${row} |`),
+  ].join('\n');
+}
+
+const signedPct = (x: number) =>
+  `${x >= 0 ? '+' : '−'}${Math.abs(x * 100).toFixed(1)}%`;
+
+function writeCsv(name: string, rows: Record<string, unknown>[]) {
+  const columns = Object.keys(rows[0]);
+  const cell = (v: unknown) =>
+    typeof v === 'number' ? String(+v.toFixed(6)) : String(v ?? '');
+  const lines = rows.map((r) => columns.map((c) => cell(r[c])).join(','));
+  writeFileSync(
+    join(OUT_DIR, name),
+    [columns.join(','), ...lines].join('\n') + '\n',
+  );
 }
 
 function populationSection(s: ReturnType<typeof populationSummary>) {
