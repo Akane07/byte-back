@@ -28,13 +28,6 @@ export interface RankParams {
   priorMean?: number;
 }
 
-/** Стартовые значения пула 1 — на них проведены шаги 3.2–3.4. */
-export const START_PARAMS: RankParams = {
-  alpha: 0.5,
-  p: 0.2,
-  weights: { Q: 0.4, R: 0.25, E: 0.2, A: 0.1, L: 0.1 },
-};
-
 /** Финальные значения — те, что сейчас в ranking.constants.ts. */
 export const FINAL_PARAMS: RankParams = {
   alpha: ALPHA,

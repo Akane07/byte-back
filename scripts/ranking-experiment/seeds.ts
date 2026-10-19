@@ -24,10 +24,10 @@ export function inputsForSeed(seed: number): Inputs {
   };
 }
 
-/** Финальные параметры на нескольких seed: устойчивость выводов к случайности. */
-export function runSeeds(seeds: number[]) {
-  return seeds.flatMap((seed) => {
-    const input = inputsForSeed(seed);
+/** Четыре режима при финальных параметрах, по строке на seed и режим. */
+export function runVariants(seeds: number[], inputs: Inputs[]) {
+  return seeds.flatMap((seed, i) => {
+    const input = inputs[i];
     const prior = platformMeanRating(input.population);
     return VARIANTS.map((variant) => ({
       seed,
