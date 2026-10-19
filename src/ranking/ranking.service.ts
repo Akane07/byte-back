@@ -38,6 +38,9 @@ export interface RankingInfo {
   factors: Factors;
   isNewcomer: boolean;
   missing: MissingCondition[];
+  /** Завершённые заказы и заказы в работе — из них считаются E и L. */
+  completed: number;
+  inProgress: number;
 }
 
 export interface Ranked<T> {
@@ -111,6 +114,8 @@ export class RankingService {
           factors,
           isNewcomer: isNewcomer(eligible, completed),
           missing,
+          completed,
+          inProgress,
         },
       };
     });
