@@ -52,7 +52,8 @@ export class UserController {
   @ApiOperation({
     summary: 'Каталог исполнителей',
     description:
-      'Пользователи с «Принимаю заказы»: поиск, категории, формат работы, город. По 12 на страницу',
+      'Пользователи с «Принимаю заказы»: поиск, категории, формат работы, город. По 12 на страницу. ' +
+      'rankMode — способ сортировки, explain=1 — разбор score у каждого исполнителя (поле ranking)',
   })
   getSpecialists(@Query() query: SpecialistsQueryDto) {
     return this.userService.getSpecialists(query);

@@ -22,6 +22,7 @@ import { REVIEW_WINDOW_DAYS, bayesianScore } from '../../src/review/review.servi
 import { ReviewSchema } from '../../src/review/schemas/review.schema';
 import {
   DIALOGS,
+  HISTORY,
   ORDERS,
   PORTFOLIOS,
   SEED_DOMAIN,
@@ -237,7 +238,7 @@ async function seed() {
 
   // --- Заказы и отклики ---
   const orderIdByTitle: Record<string, string> = {};
-  for (const o of ORDERS) {
+  for (const o of [...ORDERS, ...HISTORY]) {
     const created = ago(o.daysAgo * DAY);
     const state = o.state ?? 'active';
     const order = await OrderModel.create({
@@ -267,6 +268,18 @@ async function seed() {
     });
     const orderId = String(order._id);
     orderIdByTitle[o.title] = orderId;
+
+    if (o.history) {
+      // Архивная история: исполнитель назначен сразу, без откликов и чата.
+      const completedAt = new Date(created.getTime() + 3 * DAY);
+      const done = state === 'completed';
+      await OrderModel.updateOne(
+        { _id: order._id },
+        { performer: id[o.history], status: done ? 'completed' : 'pending', ...(done && { completed_at: completedAt }) },
+      );
+      if (done) await seedReviews(o, orderId, id[o.owner], id[o.history], completedAt);
+      continue;
+    }
 
     for (const [i, r] of (o.responses ?? []).entries()) {
       // Отклики — через несколько часов после публикации, по порядку.
@@ -367,7 +380,7 @@ async function seed() {
   }
 
   console.log(
-    `Создано: пользователей ${USERS.length}, проектов ${PORTFOLIOS.length}, заказов ${ORDERS.length}, ` +
+    `Создано: пользователей ${USERS.length}, проектов ${PORTFOLIOS.length}, заказов ${ORDERS.length} + история ${HISTORY.length}, ` +
       `предложений ${SUGGESTS.length}, диалогов ${DIALOGS.length}.`,
   );
   console.log(`Вход: <ключ>@${SEED_DOMAIN} / ${SEED_PASSWORD}, например ${emailOf('alina')}`);
