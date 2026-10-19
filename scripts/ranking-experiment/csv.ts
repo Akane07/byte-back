@@ -23,7 +23,7 @@ const COLUMNS: Record<string, Column> = {
 
   newcomerShare: { title: 'Новичков в топ-10, %', scale: PCT },
   noReviewNewcomerShare: {
-    title: 'Новичков без отзывов в топ-10, %',
+    title: 'Новички без отзывов в топ-10, % мест',
     scale: PCT,
   },
   giniExposure: { title: 'Джини видимости, 0–1' },
@@ -39,7 +39,7 @@ const COLUMNS: Record<string, Column> = {
     scale: PCT,
   },
   catalogNoReviewShare: {
-    title: 'Каталог: новичков без отзывов в топ-10, %',
+    title: 'Каталог: новички без отзывов в топ-10, % мест',
     scale: PCT,
   },
   catalogGini: { title: 'Каталог: Джини видимости, 0–1' },
@@ -49,7 +49,7 @@ const COLUMNS: Record<string, Column> = {
     scale: PCT,
   },
   recommendNoReviewShare: {
-    title: 'Подбор: новичков без отзывов в топ-10, %',
+    title: 'Подбор: новички без отзывов в топ-10, % мест',
     scale: PCT,
   },
   recommendGini: { title: 'Подбор: Джини видимости, 0–1' },
