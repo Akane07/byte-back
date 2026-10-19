@@ -1,6 +1,5 @@
-import { WEIGHTS } from '../../src/ranking/ranking.constants';
 import { simulate } from './dynamic';
-import { DEFAULT_PARAMS, Mode, RankParams } from './modes';
+import { Mode, RankParams, START_PARAMS } from './modes';
 import { Performer } from './population';
 import { Query, QueryKind, evaluateStatic } from './static';
 
@@ -61,23 +60,23 @@ export function runSensitivity(input: Inputs) {
     QUOTAS.map((p) => ({
       alpha,
       p,
-      ...evaluate(input, 'weighted', { alpha, p }),
+      ...evaluate(input, 'weighted', { ...START_PARAMS, alpha, p }),
     })),
   );
 }
 
-/** Сетка весов ступени 1 при α и p по умолчанию; для каждой — weighted-base и weighted. */
+/** Сетка весов ступени 1 при стартовых α и p; для каждой — weighted-base и weighted. */
 export function runWeights(input: Inputs) {
   return W_Q.flatMap((wQ) =>
     W_A.flatMap((wA) =>
       W_L.flatMap((wL) => {
-        const weights = { ...WEIGHTS, Q: wQ, A: wA, L: wL };
+        const weights = { ...START_PARAMS.weights, Q: wQ, A: wA, L: wL };
         return (['weighted-base', 'weighted'] as Mode[]).map((mode) => ({
           wQ,
           wA,
           wL,
           mode,
-          ...evaluate(input, mode, { ...DEFAULT_PARAMS, weights }),
+          ...evaluate(input, mode, { ...START_PARAMS, weights }),
         }));
       }),
     ),

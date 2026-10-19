@@ -165,19 +165,19 @@ export function populationSummary(performers: Performer[]) {
       meanInProgress: mean(ps.map((p) => p.inProgress)),
     };
   });
-  const allRatings = performers.reduce(
-    (acc, p) => ({
-      sum: acc.sum + p.ratingSum,
-      count: acc.count + p.reviewsCount,
-    }),
-    { sum: 0, count: 0 },
-  );
   return {
     rows,
     total: performers.length,
     newcomers: performers.filter(newcomer).length,
     newcomerThreshold: N_NEW,
-    platformMeanRating: allRatings.sum / allRatings.count,
+    platformMeanRating: platformMeanRating(performers),
     meanQ: mean(performers.map((p) => p.q)),
   };
+}
+
+/** Средняя оценка по всем отзывам платформы. */
+export function platformMeanRating(performers: Performer[]) {
+  const sum = performers.reduce((s, p) => s + p.ratingSum, 0);
+  const count = performers.reduce((s, p) => s + p.reviewsCount, 0);
+  return sum / count;
 }

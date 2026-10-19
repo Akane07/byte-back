@@ -58,7 +58,7 @@ export function evaluateStatic(
   population: Performer[],
   queries: Query[],
   mode: Mode,
-  params?: RankParams,
+  params: RankParams,
 ): StaticMetrics {
   const exposure = new Map(population.map((p) => [p.id, 0]));
   const newcomerShares: number[] = [];
@@ -108,12 +108,13 @@ export function evaluateStatic(
 export function runStatic(
   population: Performer[],
   queries: Record<QueryKind, Query[]>,
+  params: RankParams,
 ) {
   return (['catalog', 'recommend'] as QueryKind[]).flatMap((kind) =>
     MODES.map((mode) => ({
       kind,
       mode,
-      ...evaluateStatic(population, queries[kind], mode),
+      ...evaluateStatic(population, queries[kind], mode, params),
     })),
   );
 }

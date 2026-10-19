@@ -23,11 +23,23 @@ export const MODES: Mode[] = ['legacy', 'weighted-base', 'weighted'];
 export interface RankParams {
   alpha: number;
   p: number;
-  weights?: typeof WEIGHTS;
+  weights: typeof WEIGHTS;
+  /** Контроль: априорное среднее для Q вместо 4,5 — только в эксперименте. */
+  priorMean?: number;
 }
-export const DEFAULT_PARAMS: RankParams = {
+
+/** Стартовые значения пула 1 — на них проведены шаги 3.2–3.4. */
+export const START_PARAMS: RankParams = {
+  alpha: 0.5,
+  p: 0.2,
+  weights: { Q: 0.4, R: 0.25, E: 0.2, A: 0.1, L: 0.1 },
+};
+
+/** Финальные значения — те, что сейчас в ranking.constants.ts. */
+export const FINAL_PARAMS: RankParams = {
   alpha: ALPHA,
   p: NEWCOMER_SHARE,
+  weights: WEIGHTS,
 };
 
 export interface Ranked {
@@ -49,7 +61,7 @@ export function rank(
   mode: Mode,
   candidates: Performer[],
   order?: OrderContext,
-  params: RankParams = DEFAULT_PARAMS,
+  params: RankParams = FINAL_PARAMS,
 ): Ranked[] {
   const withR = (p: Performer): Ranked => ({
     performer: p,
@@ -78,7 +90,10 @@ function rankWeighted(items: Ranked[], params: RankParams) {
     const p = item.performer;
     const s = score(
       {
-        Q: quality(p.ratingScore, p.reviewsCount),
+        Q:
+          params.priorMean === undefined
+            ? quality(p.ratingScore, p.reviewsCount)
+            : qualityWithPrior(p, params.priorMean),
         E: experience(p.completed),
         Eadv: experienceAdvanced(p.completed, p.eligible, params.alpha),
         A: activity(p.lastSeen, NOW),
@@ -100,4 +115,11 @@ function rankWeighted(items: Ranked[], params: RankParams) {
     performer,
     R,
   }));
+}
+
+/** Q по байесовской формуле с другим априорным средним (вес априорных отзывов 3, как в review.service.ts). */
+function qualityWithPrior(p: Performer, prior: number) {
+  const rating = (p.ratingSum + prior * 3) / (p.reviewsCount + 3);
+  // reviewsCount = 1: rating уже учитывает априорное среднее, подменять его 4,5 не нужно
+  return quality(rating, 1);
 }

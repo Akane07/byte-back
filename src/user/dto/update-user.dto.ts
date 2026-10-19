@@ -174,13 +174,13 @@ export class SpecialistsQueryDto {
 
   @ApiPropertyOptional({
     enum: RANK_MODES,
-    default: 'legacy',
+    default: 'weighted',
     description:
       'legacy — по байесовскому рейтингу, weighted — многофакторный score и квота для новичков (docs/ranking.md)',
   })
   @IsOptional()
   @IsIn(RANK_MODES)
-  readonly rankMode: RankMode = 'legacy';
+  readonly rankMode: RankMode = 'weighted';
 
   @ApiPropertyOptional({
     type: Boolean,

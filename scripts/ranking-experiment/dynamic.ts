@@ -32,7 +32,7 @@ export function simulate(
   categories: number[],
   mode: Mode,
   seed: number,
-  params?: RankParams,
+  params: RankParams,
 ): DynamicMetrics {
   const rng = mulberry32(seed);
   const performers = population.map((p) => ({ ...p }));
@@ -91,9 +91,10 @@ export function runDynamic(
   population: Performer[],
   categories: number[],
   seed: number,
+  params: RankParams,
 ) {
   return MODES.map((mode) => ({
     mode,
-    ...simulate(population, categories, mode, seed),
+    ...simulate(population, categories, mode, seed, params),
   }));
 }

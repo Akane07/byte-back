@@ -1,26 +1,23 @@
 /**
  * Эксперимент: прежнее ранжирование против многофакторного (пул 3).
- * Всё в памяти, база не нужна. Один и тот же SEED → одни и те же цифры.
+ * Всё в памяти, база не нужна. Одни и те же seed → одни и те же цифры.
  *
  *   npm run experiment:ranking
  *
+ * Шаги 3.2–3.4 считаются на стартовых параметрах (START_PARAMS), проверка
+ * по seed — на финальных из ranking.constants.ts (FINAL_PARAMS).
  * Результаты — в docs/experiment/. В results.md всё, что ниже строки
  * CONCLUSIONS_MARK, пишется руками и при перезапуске сохраняется.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
-import { mulberry32 } from './rng';
-import {
-  MODEL,
-  generatePopulation,
-  populationCsv,
-  populationSummary,
-} from './population';
-import { WEIGHTS } from '../../src/ranking/ranking.constants';
-import { DEFAULT_PARAMS } from './modes';
+import { COMPLETE_AFTER, DYNAMIC_ORDERS, runDynamic } from './dynamic';
+import { TOP_K, mean } from './metrics';
+import { FINAL_PARAMS, START_PARAMS } from './modes';
+import { MODEL, populationCsv, populationSummary } from './population';
+import { VARIANTS, inputsForSeed, runSeeds } from './seeds';
 import {
   Evaluation,
-  Inputs,
   W_A,
   W_L,
   W_Q,
@@ -28,69 +25,161 @@ import {
   runSensitivity,
   runWeights,
 } from './sensitivity';
-
-type SensitivityRow = ReturnType<typeof runSensitivity>[number];
-type WeightRow = ReturnType<typeof runWeights>[number];
-import { TOP_K } from './metrics';
-import {
-  QueryKind,
-  STATIC_QUERIES,
-  generateQueries,
-  runStatic,
-} from './static';
-import {
-  COMPLETE_AFTER,
-  DYNAMIC_ORDERS,
-  generateOrderCategories,
-  runDynamic,
-} from './dynamic';
+import { QueryKind, STATIC_QUERIES, runStatic } from './static';
 
 const SEED = 20261019;
+/** Основной seed и пять дополнительных для проверки устойчивости. */
+const SEEDS = [SEED, 1, 2, 3, 4, 5];
 const OUT_DIR = join(__dirname, '../../docs/experiment');
 const CONCLUSIONS_MARK = '<!-- выводы: ниже пишется руками -->';
 
-const fmt = (x: number, digits = 3) => x.toFixed(digits);
+type StaticRow = ReturnType<typeof runStatic>[number];
+type DynamicRow = ReturnType<typeof runDynamic>[number];
+type SensitivityRow = ReturnType<typeof runSensitivity>[number];
+type WeightRow = ReturnType<typeof runWeights>[number];
+type SeedRow = ReturnType<typeof runSeeds>[number];
 
 function main() {
   mkdirSync(OUT_DIR, { recursive: true });
-  const population = generatePopulation(mulberry32(SEED));
+  const input = inputsForSeed(SEED);
+  const { population, queries, orderCategories, dynamicSeed } = input;
   writeFileSync(join(OUT_DIR, 'population.csv'), populationCsv(population));
 
-  const queries = generateQueries(mulberry32(SEED + 1));
-  const staticRows = runStatic(population, queries);
+  const staticRows = runStatic(population, queries, START_PARAMS);
   writeCsv('static.csv', staticRows);
-
-  const orderCategories = generateOrderCategories(mulberry32(SEED + 2));
-  const dynamicRows = runDynamic(population, orderCategories, SEED + 3);
+  const dynamicRows = runDynamic(
+    population,
+    orderCategories,
+    dynamicSeed,
+    START_PARAMS,
+  );
   writeCsv('dynamic.csv', dynamicRows);
 
-  const input: Inputs = {
-    population,
-    queries,
-    orderCategories,
-    dynamicSeed: SEED + 3,
-  };
-  const legacy = evaluate(input, 'legacy', DEFAULT_PARAMS);
+  const legacy = evaluate(input, 'legacy', START_PARAMS);
   const sensitivityRows = runSensitivity(input);
   writeCsv('sensitivity.csv', sensitivityRows);
   const weightRows = runWeights(input);
   writeCsv('weights.csv', weightRows);
 
-  const sections = [
+  const seedRows = runSeeds(SEEDS);
+  writeCsv('seeds.csv', seedRows);
+
+  writeResults([
     populationSection(populationSummary(population)),
     staticSection(staticRows),
     dynamicSection(dynamicRows),
     sensitivitySection(legacy, sensitivityRows),
     weightsSection(legacy, weightRows),
-  ];
-  writeResults(sections);
+    seedsSection(seedRows),
+  ]);
   console.log(`Готово, результаты в ${OUT_DIR}`);
 }
 
+const fmt = (x: number, digits = 3) => x.toFixed(digits);
 const pct = (x: number) => `${(x * 100).toFixed(1)}%`;
+const signedPct = (x: number) =>
+  `${x >= 0 ? '+' : '−'}${Math.abs(x * 100).toFixed(1)}%`;
 /** Значение и отклонение от базы в процентах: «4.425 (−0.8%)». */
 const vs = (x: number, base: number) =>
   `${fmt(x)} (${signedPct(x / base - 1)})`;
+const orderNo = (x: number) =>
+  Number.isFinite(x) ? String(Math.round(x)) : `> ${DYNAMIC_ORDERS}`;
+const params = (p: typeof START_PARAMS) =>
+  `α = ${p.alpha}, p = ${p.p}, wQ = ${p.weights.Q}, wR = ${p.weights.R}, ` +
+  `wE = ${p.weights.E}, wA = ${p.weights.A}, wL = ${p.weights.L}`;
+
+function populationSection(s: ReturnType<typeof populationSummary>) {
+  const table = s.rows.map((r) =>
+    [
+      r.group,
+      r.count,
+      r.newcomers,
+      r.eligible,
+      r.noReviews,
+      fmt(r.meanQ, 2),
+      fmt(r.meanCompleted, 1),
+      r.meanAvgRating ? fmt(r.meanAvgRating, 2) : '—',
+      fmt(r.meanRatingScore, 2),
+      fmt(r.meanInProgress, 2),
+    ].join(' | '),
+  );
+  return [
+    '## 3.1 Популяция',
+    '',
+    `Seed генератора: ${SEED}. Исполнителей: ${s.total}, категорий: ${MODEL.categories}. ` +
+      `Новичков (eligible и меньше ${s.newcomerThreshold} завершённых заказов): ${s.newcomers}.`,
+    '',
+    '| Группа опыта | Исполнителей | Новичков | eligible | Без отзывов | Среднее q | Среднее заверш. | Средняя оценка | Средний rating_score | В работе |',
+    '|---|---|---|---|---|---|---|---|---|---|',
+    ...table.map((row) => `| ${row} |`),
+    '',
+    `Среднее истинное q по всем: ${fmt(s.meanQ, 2)}. ` +
+      `Средняя оценка по всем отзывам платформы: ${fmt(s.platformMeanRating, 2)}.`,
+  ].join('\n');
+}
+
+function staticSection(rows: StaticRow[]) {
+  const table = (kind: QueryKind) => {
+    const ofKind = rows.filter((r) => r.kind === kind);
+    const base = ofKind.find((r) => r.mode === 'legacy')!;
+    return ofKind.map((r) =>
+      [
+        r.mode,
+        pct(r.newcomerShare),
+        pct(r.noReviewNewcomerShare),
+        fmt(r.giniExposure),
+        pct(r.topExperiencedShare),
+        vs(r.meanQ, base.meanQ),
+        ...(kind === 'recommend' ? [fmt(r.meanR!)] : []),
+      ].join(' | '),
+    );
+  };
+  const head =
+    '| Режим | Новичков в топ-10 | из них без отзывов | Джини видимости | Видимость у топ-10% опытных | Истинное q топ-10 (к legacy)';
+  return [
+    '## 3.2 Статическое сравнение',
+    '',
+    `По ${STATIC_QUERIES} запросов каждого вида, топ-${TOP_K}. Стартовые параметры: ${params(START_PARAMS)}. ` +
+      '`weighted-base` — ступень 1 при α = 0 без квоты; `weighted` — обе ступени.',
+    '',
+    '### Каталог (случайная категория)',
+    '',
+    `${head} |`,
+    '|---|---|---|---|---|---|',
+    ...table('catalog').map((row) => `| ${row} |`),
+    '',
+    '### Подбор под заказ (категория, 1–3 навыка, бюджет)',
+    '',
+    `${head} | Средний R топ-10 |`,
+    '|---|---|---|---|---|---|---|',
+    ...table('recommend').map((row) => `| ${row} |`),
+  ].join('\n');
+}
+
+function dynamicSection(rows: DynamicRow[]) {
+  const base = rows.find((r) => r.mode === 'legacy')!;
+  return [
+    '## 3.3 Динамическая симуляция',
+    '',
+    `${DYNAMIC_ORDERS} заказов подряд, случайная категория, выдача каталога. ` +
+      `Заказчик выбирает из топ-${TOP_K} с вероятностью ∝ exposure(позиция) · (0,5 + 0,5·Q). ` +
+      `Заказ завершается через ${COMPLETE_AFTER} заказов, отзыв — с вероятностью ${MODEL.reviewRate}. ` +
+      'Все режимы — на одной популяции, одной последовательности категорий и одном seed выбора. ' +
+      'Стартовые параметры, как в 3.2.',
+    '',
+    '| Режим | Новичков с заказом | Медиана до первого заказа | Доля заказов у новичков | Джини по заказам | Истинное q выбранных (к legacy) |',
+    '|---|---|---|---|---|---|',
+    ...rows.map(
+      (r) =>
+        `| ${r.mode} | ${pct(r.newcomersServed)} | ${orderNo(r.medianFirstOrder)} | ` +
+        `${pct(r.newcomerOrderShare)} | ${fmt(r.giniOrders)} | ${vs(r.meanChosenQ, base.meanChosenQ)} |`,
+    ),
+    '',
+    'Новичок — на старте симуляции. «Медиана до первого заказа» — номер заказа, ' +
+      `к которому первый заказ получила половина стартовых новичков; «> ${DYNAMIC_ORDERS}» — половина так и не получила. ` +
+      '«Джини по заказам» — по числу заказов, полученных за симуляцию, по всем исполнителям.',
+  ].join('\n');
+}
 
 const legacyLine = (l: Evaluation) =>
   `Для сравнения, legacy: новичков в топ-10 подбора ${pct(l.recommendNewcomerShare)}, ` +
@@ -142,7 +231,8 @@ function weightsSection(legacy: Evaluation, rows: WeightRow[]) {
   return [
     '## 3.4 Веса ступени 1',
     '',
-    `wQ × wA × wL при α = ${DEFAULT_PARAMS.alpha}, p = ${DEFAULT_PARAMS.p}; wE = ${WEIGHTS.E}, wR = ${WEIGHTS.R}. ` +
+    `wQ × wA × wL при α = ${START_PARAMS.alpha}, p = ${START_PARAMS.p}; ` +
+      `wE = ${START_PARAMS.weights.E}, wR = ${START_PARAMS.weights.R}. ` +
       'Положительные веса нормируются на сумму, как в ranking.math. ' +
       'Столбцы base — weighted-base с этими весами, отклонение от legacy (критерий б: показать, не подгонять). ' +
       'Столбцы weighted — полный алгоритм, отклонение качества от weighted-base с теми же весами (критерий а). ' +
@@ -155,74 +245,89 @@ function weightsSection(legacy: Evaluation, rows: WeightRow[]) {
     ...lines,
   ].join('\n');
 }
-const orderNo = (x: number) =>
-  Number.isFinite(x) ? String(x) : `> ${DYNAMIC_ORDERS}`;
 
-function dynamicSection(rows: ReturnType<typeof runDynamic>) {
-  const base = rows.find((r) => r.mode === 'legacy')!;
-  return [
-    '## 3.3 Динамическая симуляция',
-    '',
-    `${DYNAMIC_ORDERS} заказов подряд, случайная категория, выдача каталога. ` +
-      `Заказчик выбирает из топ-${TOP_K} с вероятностью ∝ exposure(позиция) · (0,5 + 0,5·Q). ` +
-      `Заказ завершается через ${COMPLETE_AFTER} заказов, отзыв — с вероятностью ${MODEL.reviewRate}. ` +
-      'Все режимы — на одной популяции, одной последовательности категорий и одном seed выбора.',
-    '',
-    '| Режим | Новичков с заказом | Медиана до первого заказа | Доля заказов у новичков | Джини по заказам | Истинное q выбранных (к legacy) |',
-    '|---|---|---|---|---|---|',
-    ...rows.map(
-      (r) =>
-        `| ${r.mode} | ${pct(r.newcomersServed)} | ${orderNo(r.medianFirstOrder)} | ` +
-        `${pct(r.newcomerOrderShare)} | ${fmt(r.giniOrders)} | ` +
-        `${fmt(r.meanChosenQ)} (${signedPct(r.meanChosenQ / base.meanChosenQ - 1)}) |`,
-    ),
-    '',
-    'Новичок — на старте симуляции. «Медиана до первого заказа» — номер заказа, ' +
-      `к которому первый заказ получила половина стартовых новичков; «> ${DYNAMIC_ORDERS}» — половина так и не получила.`,
-  ].join('\n');
+/** «среднее [мин–макс]» по seed. */
+function spread(values: number[], show: (x: number) => string) {
+  const lo = Math.min(...values);
+  const hi = Math.max(...values);
+  const avg = values.every(Number.isFinite) ? show(mean(values)) : '—';
+  return `${avg} [${show(lo)} – ${show(hi)}]`;
 }
 
-function staticSection(rows: ReturnType<typeof runStatic>) {
-  const table = (kind: QueryKind) => {
-    const ofKind = rows.filter((r) => r.kind === kind);
-    const base = ofKind.find((r) => r.mode === 'legacy')!;
-    return ofKind.map((r) =>
-      [
-        r.mode,
-        pct(r.newcomerShare),
-        pct(r.noReviewNewcomerShare),
-        fmt(r.giniExposure),
-        pct(r.topExperiencedShare),
-        `${fmt(r.meanQ)} (${signedPct(r.meanQ / base.meanQ - 1)})`,
-        ...(kind === 'recommend' ? [fmt(r.meanR!)] : []),
-      ].join(' | '),
+function seedsSection(rows: SeedRow[]) {
+  const of = (variant: string) => rows.filter((r) => r.variant === variant);
+  const metricLines = VARIANTS.map((variant) => {
+    const rs = of(variant);
+    const col = (f: (r: SeedRow) => number, show: (x: number) => string) =>
+      spread(rs.map(f), show);
+    return (
+      `| ${variant} | ${col((r) => r.recommendNewcomerShare, pct)} | ` +
+      `${col((r) => r.recommendGini, fmt)} | ${col((r) => r.recommendMeanQ, fmt)} | ` +
+      `${col((r) => r.newcomersServed, pct)} | ${col((r) => r.medianFirstOrder, orderNo)} | ` +
+      `${col((r) => r.giniOrders, fmt)} | ${col((r) => r.meanChosenQ, fmt)} |`
+    );
+  });
+
+  const compare = (label: string, a: string, b: string) => {
+    const ratios = (f: (r: SeedRow) => number) =>
+      SEEDS.map((seed) => {
+        const x = rows.find((r) => r.seed === seed && r.variant === a)!;
+        const y = rows.find((r) => r.seed === seed && r.variant === b)!;
+        return f(x) / f(y) - 1;
+      });
+    return (
+      `| ${label} | ${spread(
+        ratios((r) => r.recommendMeanQ),
+        signedPct,
+      )} | ` +
+      `${spread(
+        ratios((r) => r.meanChosenQ),
+        signedPct,
+      )} |`
     );
   };
-  const head =
-    '| Режим | Новичков в топ-10 | из них без отзывов | Джини видимости | Видимость у топ-10% опытных | Истинное q топ-10 (к legacy)';
+
+  const priors = of('weighted-prior').map((r) => r.priorMean);
   return [
-    '## 3.2 Статическое сравнение',
+    '## 3.5 Финальные параметры на нескольких seed',
     '',
-    `По ${STATIC_QUERIES} запросов каждого вида, топ-${TOP_K}. ` +
-      '`weighted-base` — ступень 1 при α = 0 без квоты; `weighted` — обе ступени, ' +
-      `α = ${DEFAULT_PARAMS.alpha}, p = ${DEFAULT_PARAMS.p}.`,
+    `Финальные параметры: ${params(FINAL_PARAMS)}. ` +
+      `Seed: ${SEEDS.join(', ')} (основной и пять дополнительных); от seed зависят популяция, запросы, ` +
+      'категории заказов и выбор заказчика. В каждой клетке — среднее по seed и [минимум – максимум]. ' +
+      'Значения по каждому seed — в seeds.csv.',
     '',
-    '### Каталог (случайная категория)',
+    '`weighted-prior` — контрольная строка: weighted, где Q считается по байесовской формуле с априорным ' +
+      `средним, равным средней оценке платформы этого seed (${fmt(Math.min(...priors), 2)}–${fmt(Math.max(...priors), 2)}), ` +
+      'а не 4,5. Код рейтинга сайта не меняется, выбор заказчика в динамике по-прежнему видит рейтинг сайта.',
     '',
-    `${head} |`,
-    '|---|---|---|---|---|---|',
-    ...table('catalog').map((row) => `| ${row} |`),
+    '| Режим | Новичков в топ-10 | Джини видимости | Истинное q топ-10 | Новичков с заказом | Медиана до первого заказа | Джини по заказам | Истинное q выбранных |',
+    '|---|---|---|---|---|---|---|---|',
+    ...metricLines,
     '',
-    '### Подбор под заказ (категория, 1–3 навыка, бюджет)',
+    'Статические метрики — по запросам подбора под заказ, динамические — по симуляции 3.3.',
     '',
-    `${head} | Средний R топ-10 |`,
-    '|---|---|---|---|---|---|---|',
-    ...table('recommend').map((row) => `| ${row} |`),
+    '### Потеря истинного качества по seed',
+    '',
+    '| Сравнение | q топ-10 подбора | q выбранных |',
+    '|---|---|---|',
+    compare(
+      '(а) weighted к weighted-base — механизмы для новичков',
+      'weighted',
+      'weighted-base',
+    ),
+    compare(
+      '(б) weighted-base к legacy — ступень 1',
+      'weighted-base',
+      'legacy',
+    ),
+    compare('weighted к legacy — итого', 'weighted', 'legacy'),
+    compare(
+      'weighted-prior к weighted-base',
+      'weighted-prior',
+      'weighted-base',
+    ),
   ].join('\n');
 }
-
-const signedPct = (x: number) =>
-  `${x >= 0 ? '+' : '−'}${Math.abs(x * 100).toFixed(1)}%`;
 
 function writeCsv(name: string, rows: Record<string, unknown>[]) {
   const columns = Object.keys(rows[0]);
@@ -233,36 +338,6 @@ function writeCsv(name: string, rows: Record<string, unknown>[]) {
     join(OUT_DIR, name),
     [columns.join(','), ...lines].join('\n') + '\n',
   );
-}
-
-function populationSection(s: ReturnType<typeof populationSummary>) {
-  const table = s.rows.map((r) =>
-    [
-      r.group,
-      r.count,
-      r.newcomers,
-      r.eligible,
-      r.noReviews,
-      fmt(r.meanQ, 2),
-      fmt(r.meanCompleted, 1),
-      r.meanAvgRating ? fmt(r.meanAvgRating, 2) : '—',
-      fmt(r.meanRatingScore, 2),
-      fmt(r.meanInProgress, 2),
-    ].join(' | '),
-  );
-  return [
-    '## 3.1 Популяция',
-    '',
-    `Seed генератора: ${SEED}. Исполнителей: ${s.total}, категорий: ${MODEL.categories}. ` +
-      `Новичков (eligible и меньше ${s.newcomerThreshold} завершённых заказов): ${s.newcomers}.`,
-    '',
-    '| Группа опыта | Исполнителей | Новичков | eligible | Без отзывов | Среднее q | Среднее заверш. | Средняя оценка | Средний rating_score | В работе |',
-    '|---|---|---|---|---|---|---|---|---|---|',
-    ...table.map((row) => `| ${row} |`),
-    '',
-    `Среднее истинное q по всем: ${fmt(s.meanQ, 2)}. ` +
-      `Средняя оценка по всем отзывам платформы: ${fmt(s.platformMeanRating, 2)}.`,
-  ].join('\n');
 }
 
 function writeResults(sections: string[]) {
