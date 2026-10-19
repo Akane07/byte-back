@@ -305,6 +305,110 @@ export const USERS: SeedUser[] = [
     lastSeenHoursAgo: 2,
   },
 
+  // --- Опытные исполнители: десятки завершённых заказов (HISTORY ниже) ---
+  // Нужны, чтобы в ранжировании были видны опыт E, загрузка L и квота
+  // для новичков: в веб-разработке и UI/UX опытные стоят выше новичков.
+  {
+    key: 'irina',
+    name: 'Ирина Ветрова',
+    nickname: 'vetrova.ui',
+    speciality: 'UI/UX-дизайнер',
+    description:
+      'Девять лет в продуктовом дизайне: интернет-магазины, личные кабинеты, мобильные приложения. Провожу интервью с пользователями, собираю прототипы и дизайн-системы, передаю макеты разработке с подробными спецификациями.',
+    country: 'Россия',
+    behance: 'https://www.behance.net/vetrova',
+    skills: ['UI/UX', 'Figma', 'Прототип', 'Дизайн интернет-магазина', 'Дизайн мобильного приложения', 'Адаптивный дизайн'],
+    avatar: 4,
+    verified: true,
+    city: 'Москва',
+    performer: { format: 'remote', categories: [4, 1], priceFrom: 4000 },
+    registeredDaysAgo: 700,
+    lastSeenHoursAgo: 3,
+  },
+  {
+    key: 'roman',
+    name: 'Роман Гришин',
+    nickname: 'grishin.front',
+    speciality: 'Frontend-разработчик',
+    description:
+      'Фронтенд на React и Vue с 2017 года: SPA, админки, интеграции с API. Пишу типизированный код на TypeScript, настраиваю сборку и тесты, слежу за скоростью загрузки и доступностью интерфейса.',
+    country: 'Россия',
+    git: 'https://github.com/grishin-front',
+    skills: ['JavaScript', 'Typescript', 'React', 'Vue.js', 'SPA', 'Адаптивная верстка'],
+    avatar: 6,
+    verified: true,
+    city: 'Санкт-Петербург',
+    performer: { format: 'remote', categories: [3], priceFrom: 3000 },
+    registeredDaysAgo: 600,
+    lastSeenHoursAgo: 8,
+  },
+  {
+    key: 'denis',
+    name: 'Денис Комаров',
+    nickname: 'komarov.web',
+    speciality: 'Веб-разработчик',
+    description:
+      'Делаю сайты под ключ на WordPress и Laravel: корпоративные сайты, каталоги, небольшие интернет-магазины. Верстаю адаптивно, подключаю оплату и CRM, после запуска остаюсь на поддержке.',
+    country: 'Россия',
+    skills: ['HTML', 'CSS', 'Php', 'Laravel', 'Wordpress', 'Адаптивная верстка'],
+    avatar: 3,
+    verified: true,
+    city: 'Новосибирск',
+    performer: { format: 'remote', categories: [3], priceFrom: 2500 },
+    registeredDaysAgo: 450,
+    lastSeenHoursAgo: 20,
+  },
+  {
+    key: 'polina',
+    name: 'Полина Ершова',
+    nickname: 'ershova.design',
+    speciality: 'Дизайнер интерфейсов',
+    description:
+      'Проектирую лендинги и интерфейсы сервисов: от вайрфреймов до готового UI-кита. Люблю минимализм и аккуратную типографику, делаю адаптивы под все экраны и анимации для разработчиков.',
+    country: 'Беларусь',
+    skills: ['UI/UX', 'Figma', 'Дизайн лендинга', 'Wireframe', 'Минимализм', 'Анимации интерфейса'],
+    avatar: 1,
+    verified: true,
+    city: 'Минск',
+    performer: { format: 'remote', categories: [4], priceFrom: 2000 },
+    registeredDaysAgo: 300,
+    lastSeenHoursAgo: 48,
+  },
+  {
+    key: 'andrey',
+    name: 'Андрей Белов',
+    nickname: 'belov_fullstack',
+    speciality: 'Fullstack-разработчик',
+    description:
+      'Fullstack на TypeScript: фронтенд на Vue и Nuxt, бэкенд на Node.js с MongoDB. Больше сорока завершённых проектов — от MVP стартапов до внутренних систем компаний. Сейчас загружен, но новые задачи обсуждаю.',
+    country: 'Россия',
+    git: 'https://github.com/belov-fullstack',
+    skills: ['Typescript', 'Vue.js', 'Nuxt.js', 'Node.js', 'MongoDB', 'Api-интеграция'],
+    avatar: 7,
+    verified: true,
+    city: 'Казань',
+    performer: { format: 'remote', categories: [3, 2], priceFrom: 5000 },
+    registeredDaysAgo: 900,
+    lastSeenHoursAgo: 2,
+  },
+  {
+    key: 'oleg',
+    name: 'Олег Сафин',
+    nickname: 'safin_master',
+    speciality: 'Мастер по ремонту',
+    description:
+      'Мелкий ремонт, сборка мебели, электрика и сантехника в Казани. Больше пятнадцати лет в профессии, свой инструмент и расходники, приезжаю в день обращения. Работаю аккуратно и убираю за собой.',
+    country: 'Россия',
+    phone: '+79172223344',
+    skills: ['Мелкий ремонт', 'Сборка мебели', 'Электрика', 'Сантехника'],
+    avatar: 0,
+    verified: true,
+    city: 'Казань',
+    performer: { format: 'onsite', categories: [14], priceFrom: 1000 },
+    registeredDaysAgo: 800,
+    lastSeenHoursAgo: 6,
+  },
+
   // --- Почти пустые профили ---
   // Без имени: как после регистрации по новой форме — имя из почты.
   { key: 'newbie', registeredDaysAgo: 1 },
@@ -523,6 +627,11 @@ export interface SeedOrder {
   state?: 'active' | 'draft' | 'archived' | 'completed';
   responses?: SeedResponse[];
   viewedBy?: string[];
+  /**
+   * Исполнитель (ключ) архивного заказа из HISTORY: назначается сразу, без
+   * откликов и переписки. state = completed — завершён, иначе — в работе.
+   */
+  history?: string;
 }
 
 export const ORDERS: SeedOrder[] = [
@@ -1173,4 +1282,125 @@ export const DIALOGS: SeedDialog[] = [
       ['olga', 'Готово 👍', 1380],
     ],
   },
+];
+
+// --- История опытных исполнителей: завершённые и текущие заказы без переписки ---
+
+const HISTORY_OWNERS = ['sergey', 'marina', 'artem', 'pavel'];
+
+const HISTORY_REVIEWS: Record<number, string[]> = {
+  5: [
+    'Всё сделано в срок и даже чуть раньше. Буду обращаться ещё.',
+    'Отличная работа, понял задачу с полуслова.',
+    'Аккуратно, быстро, без лишних вопросов. Рекомендую.',
+  ],
+  4: [
+    'Хороший результат, но пришлось один раз напомнить о сроках.',
+    'Работа качественная, правки внёс не сразу.',
+  ],
+};
+
+interface HistoryPlan {
+  performer: string;
+  category: number;
+  skills: string[];
+  titles: string[];
+  price: number;
+  onsite?: { city: string };
+  completed: number;
+  inProgress: number;
+  /** Оценки по кругу; 0 — заказчик отзыв не оставил (примерно каждый пятый). */
+  ratings: number[];
+}
+
+function history(plan: HistoryPlan): SeedOrder[] {
+  const orders: SeedOrder[] = [];
+  const total = plan.completed + plan.inProgress;
+  for (let i = 0; i < total; i++) {
+    const done = i < plan.completed;
+    const rating = plan.ratings[i % plan.ratings.length];
+    const texts = HISTORY_REVIEWS[rating];
+    orders.push({
+      owner: HISTORY_OWNERS[i % HISTORY_OWNERS.length],
+      title: `${plan.titles[i % plan.titles.length]} — №${i + 1}`,
+      description: 'Заказ из истории исполнителя.',
+      category: plan.category,
+      price_type: 'fixed',
+      price: plan.price,
+      type: 'one-time',
+      deadlines: 'less-month',
+      onsite: plan.onsite,
+      skills: plan.skills.slice(0, 2 + (i % 3)),
+      // Завершённые — равномерно за последние ~2 года, текущие — на этой неделе.
+      daysAgo: done ? 20 + Math.round(((plan.completed - i) * 700) / plan.completed) : 1 + i - plan.completed,
+      state: done ? 'completed' : 'active',
+      reviews: done && texts ? { byCustomer: [rating, texts[i % texts.length]] } : undefined,
+      history: plan.performer,
+    });
+  }
+  return orders;
+}
+
+export const HISTORY: SeedOrder[] = [
+  ...history({
+    performer: 'irina',
+    category: 4,
+    skills: ['UI/UX', 'Figma', 'Прототип', 'Адаптивный дизайн'],
+    titles: ['Дизайн личного кабинета', 'Редизайн интернет-магазина', 'Прототип мобильного приложения'],
+    price: 40000,
+    completed: 28,
+    inProgress: 1,
+    ratings: [5, 5, 5, 0, 5, 4, 5, 5, 0, 5],
+  }),
+  ...history({
+    performer: 'roman',
+    category: 3,
+    skills: ['Typescript', 'React', 'Vue.js', 'SPA'],
+    titles: ['SPA для сервиса бронирования', 'Админ-панель на React', 'Перенос фронтенда на Vue 3'],
+    price: 60000,
+    completed: 22,
+    inProgress: 0,
+    ratings: [5, 5, 4, 0, 5],
+  }),
+  ...history({
+    performer: 'denis',
+    category: 3,
+    skills: ['Wordpress', 'Php', 'HTML', 'CSS'],
+    titles: ['Корпоративный сайт на WordPress', 'Каталог продукции на Laravel', 'Доработка сайта'],
+    price: 30000,
+    completed: 12,
+    inProgress: 0,
+    ratings: [5, 4, 5, 0, 5],
+  }),
+  ...history({
+    performer: 'polina',
+    category: 4,
+    skills: ['Figma', 'Дизайн лендинга', 'Wireframe'],
+    titles: ['Дизайн лендинга', 'UI-кит для сервиса'],
+    price: 20000,
+    completed: 9,
+    inProgress: 0,
+    ratings: [5, 5, 0, 4, 5],
+  }),
+  ...history({
+    performer: 'andrey',
+    category: 3,
+    skills: ['Typescript', 'Vue.js', 'Nuxt.js', 'Node.js'],
+    titles: ['MVP веб-сервиса', 'Интеграция с платёжным API', 'Личный кабинет на Nuxt'],
+    price: 80000,
+    completed: 45,
+    inProgress: 3,
+    ratings: [5, 5, 4, 5, 0],
+  }),
+  ...history({
+    performer: 'oleg',
+    category: 14,
+    skills: ['Мелкий ремонт', 'Сборка мебели', 'Электрика'],
+    titles: ['Мелкий ремонт в квартире', 'Сборка кухни', 'Замена проводки в комнате'],
+    price: 5000,
+    onsite: { city: 'Казань' },
+    completed: 18,
+    inProgress: 2,
+    ratings: [5, 4, 5, 5, 0],
+  }),
 ];
