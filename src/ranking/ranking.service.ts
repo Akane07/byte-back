@@ -19,7 +19,9 @@ import {
   workload,
 } from './ranking.math';
 
-export type RankMode = 'legacy' | 'weighted';
+/** legacy — прежняя сортировка по rating_score, weighted — многофакторная. */
+export const RANK_MODES = ['legacy', 'weighted'] as const;
+export type RankMode = (typeof RANK_MODES)[number];
 
 export interface RankingCandidate extends ProfileFields {
   id: string;

@@ -19,6 +19,7 @@ import {
 } from '../../auth/schemas/user.schema';
 import { CATEGORY_IDS } from '../../category/constants/categories';
 import { CITIES } from '../../common/cities';
+import { RANK_MODES, RankMode } from '../../ranking/ranking.service';
 
 /**
  * Поля профиля, которые пользователь может менять сам.
@@ -170,4 +171,25 @@ export class SpecialistsQueryDto {
   @IsOptional()
   @IsIn(CITIES)
   readonly city?: string;
+
+  @ApiPropertyOptional({
+    enum: RANK_MODES,
+    default: 'legacy',
+    description:
+      'legacy — по байесовскому рейтингу, weighted — многофакторный score и квота для новичков (docs/ranking.md)',
+  })
+  @IsOptional()
+  @IsIn(RANK_MODES)
+  readonly rankMode: RankMode = 'legacy';
+
+  @ApiPropertyOptional({
+    type: Boolean,
+    example: 1,
+    description:
+      '1 — добавить каждому исполнителю поле ranking с разбором score',
+  })
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true' || value === '1')
+  @IsBoolean()
+  readonly explain?: boolean;
 }

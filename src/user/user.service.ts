@@ -4,6 +4,7 @@ import { FilterQuery, Model } from 'mongoose';
 import { AuthService } from '../auth/auth.service';
 import { escapeRegExp } from '../common/escape-regexp';
 import { User, UserDocument } from '../auth/schemas/user.schema';
+import { Ranked, RankingService } from '../ranking/ranking.service';
 import {
   SPECIALISTS_PAGE_SIZE,
   SpecialistsQueryDto,
@@ -15,6 +16,7 @@ export class UserService {
   constructor(
     @InjectModel(User.name) private readonly userModel: Model<User>,
     private readonly authService: AuthService,
+    private readonly rankingService: RankingService,
   ) {}
 
   /** Свой профиль: все поля, кроме секретных. Заодно отмечает время визита. */
@@ -49,12 +51,13 @@ export class UserService {
   }
 
   /**
-   * Каталог исполнителей: те, кто отметил «Принимаю заказы». Сверху —
-   * с лучшим взвешенным рейтингом (см. User.rating_score), при равенстве —
-   * с большим числом отзывов, затем кто недавно заходил.
+   * Каталог исполнителей: те, кто отметил «Принимаю заказы».
+   * legacy: сверху — с лучшим взвешенным рейтингом (см. User.rating_score),
+   * при равенстве — с большим числом отзывов, затем кто недавно заходил.
+   * weighted: многофакторный score и квота для новичков (RankingService).
    */
   async getSpecialists(query: SpecialistsQueryDto) {
-    const { page, q, categories, format, city } = query;
+    const { page, q, categories, format, city, rankMode, explain } = query;
     const filter: FilterQuery<User> = { is_performer: true };
 
     if (categories?.length) filter.categories = { $in: categories };
@@ -74,21 +77,43 @@ export class UserService {
       ];
     }
 
-    const [users, total] = await Promise.all([
-      this.userModel
-        .find(filter)
-        .sort({ rating_score: -1, reviews_count: -1, last_seen: -1, _id: 1 })
-        .skip((page - 1) * SPECIALISTS_PAGE_SIZE)
-        .limit(SPECIALISTS_PAGE_SIZE),
-      this.userModel.countDocuments(filter),
-    ]);
+    const skip = (page - 1) * SPECIALISTS_PAGE_SIZE;
+    let ranked: Ranked<PublicUser>[];
+    let total: number;
 
-    return {
-      users: users.map(toPublicUser),
-      totalPages: Math.max(1, Math.ceil(total / SPECIALISTS_PAGE_SIZE)),
-      currentPage: page,
+    if (rankMode === 'weighted') {
+      // score и квота считаются по всем кандидатам, страница режется после
+      const all = await this.userModel.find(filter);
+      total = all.length;
+      ranked = (await this.rankingService.rank(all.map(toPublicUser))).slice(
+        skip,
+        skip + SPECIALISTS_PAGE_SIZE,
+      );
+    } else {
+      const [users, count] = await Promise.all([
+        this.userModel
+          .find(filter)
+          .sort({ rating_score: -1, reviews_count: -1, last_seen: -1, _id: 1 })
+          .skip(skip)
+          .limit(SPECIALISTS_PAGE_SIZE),
+        this.userModel.countDocuments(filter),
+      ]);
+      total = count;
+      const pageUsers = users.map(toPublicUser);
+      if (!explain) return specialistsPage(pageUsers, total, page);
+      ranked = (await this.rankingService.describe(pageUsers)).map((r, i) => ({
+        ...r,
+        ranking: { ...r.ranking, position: skip + i + 1 },
+      }));
+    }
+
+    return specialistsPage(
+      ranked.map((r) =>
+        explain ? { ...r.candidate, ranking: r.ranking } : r.candidate,
+      ),
       total,
-    };
+      page,
+    );
   }
 
   /** Время последнего визита — при входе в чат и выходе из него. */
@@ -126,4 +151,15 @@ function toPrivateUser(user: UserDocument) {
 function toPublicUser(user: UserDocument) {
   const { email, phone, ...fields } = toPrivateUser(user);
   return fields;
+}
+
+type PublicUser = ReturnType<typeof toPublicUser>;
+
+function specialistsPage<T>(users: T[], total: number, page: number) {
+  return {
+    users,
+    totalPages: Math.max(1, Math.ceil(total / SPECIALISTS_PAGE_SIZE)),
+    currentPage: page,
+    total,
+  };
 }
