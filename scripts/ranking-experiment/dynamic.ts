@@ -1,6 +1,6 @@
 import { quality } from '../../src/ranking/ranking.math';
 import { TOP_K, exposureAt, gini, mean, median } from './metrics';
-import { MODES, Mode, NewcomerParams, rank } from './modes';
+import { MODES, Mode, RankParams, rank } from './modes';
 import { MODEL, Performer, addRating, newcomer } from './population';
 import { Rng, mulberry32, randInt, weightedIndex } from './rng';
 import { candidatesFor } from './static';
@@ -32,7 +32,7 @@ export function simulate(
   categories: number[],
   mode: Mode,
   seed: number,
-  params?: NewcomerParams,
+  params?: RankParams,
 ): DynamicMetrics {
   const rng = mulberry32(seed);
   const performers = population.map((p) => ({ ...p }));

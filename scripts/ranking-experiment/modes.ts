@@ -1,4 +1,8 @@
-import { ALPHA, NEWCOMER_SHARE } from '../../src/ranking/ranking.constants';
+import {
+  ALPHA,
+  NEWCOMER_SHARE,
+  WEIGHTS,
+} from '../../src/ranking/ranking.constants';
 import {
   OrderContext,
   activity,
@@ -15,16 +19,16 @@ import { NOW, Performer, newcomer } from './population';
 export type Mode = 'legacy' | 'weighted-base' | 'weighted';
 export const MODES: Mode[] = ['legacy', 'weighted-base', 'weighted'];
 
-/** Параметры механизмов для новичков: аванс опыта α и квота p. */
-export interface NewcomerParams {
+/** Параметры механизмов для новичков (аванс опыта α, квота p) и веса score. */
+export interface RankParams {
   alpha: number;
   p: number;
+  weights?: typeof WEIGHTS;
 }
-export const DEFAULT_PARAMS: NewcomerParams = {
+export const DEFAULT_PARAMS: RankParams = {
   alpha: ALPHA,
   p: NEWCOMER_SHARE,
 };
-const BASE_PARAMS: NewcomerParams = { alpha: 0, p: 0 };
 
 export interface Ranked {
   performer: Performer;
@@ -45,7 +49,7 @@ export function rank(
   mode: Mode,
   candidates: Performer[],
   order?: OrderContext,
-  params: NewcomerParams = DEFAULT_PARAMS,
+  params: RankParams = DEFAULT_PARAMS,
 ): Ranked[] {
   const withR = (p: Performer): Ranked => ({
     performer: p,
@@ -54,7 +58,7 @@ export function rank(
   if (mode === 'legacy') return [...candidates].sort(compareLegacy).map(withR);
   return rankWeighted(
     candidates.map(withR),
-    mode === 'weighted' ? params : BASE_PARAMS,
+    mode === 'weighted' ? params : { ...params, alpha: 0, p: 0 },
   );
 }
 
@@ -69,17 +73,20 @@ function compareLegacy(a: Performer, b: Performer) {
 }
 
 /** Обе ступени RankingService на чистых функциях ranking.math. */
-function rankWeighted(items: Ranked[], params: NewcomerParams) {
+function rankWeighted(items: Ranked[], params: RankParams) {
   const scored = items.map((item) => {
     const p = item.performer;
-    const s = score({
-      Q: quality(p.ratingScore, p.reviewsCount),
-      E: experience(p.completed),
-      Eadv: experienceAdvanced(p.completed, p.eligible, params.alpha),
-      A: activity(p.lastSeen, NOW),
-      L: workload(p.inProgress),
-      R: item.R,
-    });
+    const s = score(
+      {
+        Q: quality(p.ratingScore, p.reviewsCount),
+        E: experience(p.completed),
+        Eadv: experienceAdvanced(p.completed, p.eligible, params.alpha),
+        A: activity(p.lastSeen, NOW),
+        L: workload(p.inProgress),
+        R: item.R,
+      },
+      params.weights,
+    );
     return {
       ...item,
       id: p.id,

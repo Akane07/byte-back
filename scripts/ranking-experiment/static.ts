@@ -1,6 +1,6 @@
 import { OrderContext } from '../../src/ranking/ranking.math';
 import { TOP_K, exposureAt, gini, mean } from './metrics';
-import { MODES, Mode, NewcomerParams, rank } from './modes';
+import { MODES, Mode, RankParams, rank } from './modes';
 import { MODEL, Performer, categorySkills, newcomer } from './population';
 import { Rng, randInt, sample } from './rng';
 
@@ -58,7 +58,7 @@ export function evaluateStatic(
   population: Performer[],
   queries: Query[],
   mode: Mode,
-  params?: NewcomerParams,
+  params?: RankParams,
 ): StaticMetrics {
   const exposure = new Map(population.map((p) => [p.id, 0]));
   const newcomerShares: number[] = [];
