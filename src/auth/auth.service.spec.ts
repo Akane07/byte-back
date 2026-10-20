@@ -15,10 +15,15 @@ import { User, UserSchema } from './schemas/user.schema';
 
 const EMAIL = 'anna@test.local';
 const PASSWORD = 'Secret123';
+const NEW_PASSWORD = 'NewSecret123';
 const SECRETS =
   '+passwordHash +salt +hash_iterations +verification_token +code_sent_at ' +
-  '+reset_code +reset_expires +reset_attempts';
+  '+verify_attempts +verify_locked_until ' +
+  '+reset_code +reset_expires +reset_attempts +reset_locked_until';
 const SIX_DIGITS = /^\d{6}$/;
+/** Коды генерируются от 100000, такой не выпадет никогда. */
+const WRONG = '000000';
+const LOCKED = 'Слишком много неверных попыток';
 const secondsAgo = (s: number) => new Date(Date.now() - s * 1000);
 
 describe('AuthService', () => {
@@ -74,6 +79,17 @@ describe('AuthService', () => {
   /** Сдвинуть время последнего письма: пауза между кодами уже прошла. */
   const cooldownPassed = (email = EMAIL) =>
     users.updateOne({ email }, { code_sent_at: secondsAgo(61) });
+
+  /** Пользователь, которому уже можно отправить код восстановления. */
+  const requestReset = async () => {
+    await register();
+    await cooldownPassed();
+    await service.requestPasswordReset(EMAIL);
+    return lastCode(mail.sendRestoreEmail);
+  };
+
+  const field = async (name: string) =>
+    ((await stored()) as unknown as Record<string, unknown>)[name];
 
   const rejection = (promise: Promise<unknown>) =>
     promise.then(
@@ -206,14 +222,6 @@ describe('AuthService', () => {
   });
 
   describe('восстановление пароля', () => {
-    /** Пользователь, которому уже можно отправить код восстановления. */
-    const requestReset = async () => {
-      await register();
-      await cooldownPassed();
-      await service.requestPasswordReset(EMAIL);
-      return lastCode(mail.sendRestoreEmail);
-    };
-
     it('код из 6 цифр живёт 15 минут, в базе — только его хеш', async () => {
       const before = Date.now();
       const code = await requestReset();
@@ -236,27 +244,10 @@ describe('AuthService', () => {
       );
     });
 
-    it('после 5 неверных попыток код сгорает', async () => {
-      const code = await requestReset();
-      const wrong = code === '111111' ? '222222' : '111111';
-
-      for (let i = 0; i < 5; i++) {
-        await expect(
-          service.checkPasswordResetCode(EMAIL, wrong),
-        ).rejects.toThrow('Неверный код');
-      }
-      expect((await stored()).reset_attempts).toBe(5);
-      await expect(
-        service.resetPassword(EMAIL, code, 'NewSecret123'),
-      ).rejects.toThrow('Слишком много неверных попыток');
-      await expect(service.loginUser(EMAIL, PASSWORD)).resolves.toBeDefined();
-    });
-
     it('после 4 неверных попыток верный код ещё принимается', async () => {
       const code = await requestReset();
-      const wrong = code === '111111' ? '222222' : '111111';
       for (let i = 0; i < 4; i++) {
-        await service.checkPasswordResetCode(EMAIL, wrong).catch(() => null);
+        await service.checkPasswordResetCode(EMAIL, WRONG).catch(() => null);
       }
       await expect(
         service.checkPasswordResetCode(EMAIL, code),
@@ -292,4 +283,107 @@ describe('AuthService', () => {
       expect(mail.sendRestoreEmail).toHaveBeenCalledTimes(1);
     });
   });
+
+  // Правило одно для обоих кодов, счётчики раздельные.
+  describe.each([
+    {
+      flow: 'подтверждение почты',
+      attempts: 'verify_attempts',
+      lockedUntil: 'verify_locked_until',
+      start: async () => {
+        await register();
+        return lastCode(mail.sendVerificationEmail);
+      },
+      newCode: async () => {
+        await cooldownPassed();
+        await service.resendVerification(String((await stored())._id));
+        return lastCode(mail.sendVerificationEmail);
+      },
+      enter: (code: string) => service.verifyUser(EMAIL, code),
+      /** Почта подтверждена (и токен выдан). */
+      accepted: async () => (await stored()).is_verified,
+    },
+    {
+      flow: 'восстановление пароля',
+      attempts: 'reset_attempts',
+      lockedUntil: 'reset_locked_until',
+      start: requestReset,
+      newCode: async () => {
+        await cooldownPassed();
+        await service.requestPasswordReset(EMAIL);
+        return lastCode(mail.sendRestoreEmail);
+      },
+      enter: (code: string) => service.resetPassword(EMAIL, code, NEW_PASSWORD),
+      /** Пароль сменился. */
+      accepted: () =>
+        service.loginUser(EMAIL, NEW_PASSWORD).then(
+          () => true,
+          () => false,
+        ),
+    },
+  ])(
+    'блокировка ввода кода: $flow',
+    ({ attempts, lockedUntil, start, newCode, enter, accepted }) => {
+      const enterWrong = async (times: number) => {
+        for (let i = 0; i < times; i++) {
+          await expect(enter(WRONG)).rejects.toThrow('Неверный код');
+        }
+      };
+
+      it('после 5 неверных вводов верный код не принимается', async () => {
+        const code = await start();
+        await enterWrong(5);
+        await expect(enter(code)).rejects.toThrow(LOCKED);
+        expect(await accepted()).toBe(false);
+      });
+
+      it('новый код блокировку не снимает', async () => {
+        await start();
+        await enterWrong(5);
+        const code = await newCode();
+        await expect(enter(code)).rejects.toThrow(LOCKED);
+        expect(await accepted()).toBe(false);
+      });
+
+      it('блокировка на час; после неё счёт начинается заново', async () => {
+        const code = await start();
+        await enterWrong(5);
+        const until = await field(lockedUntil);
+        expect(until).toBeInstanceOf(Date);
+        const left = (until as Date).getTime() - Date.now();
+        expect(left).toBeGreaterThan(59 * 60 * 1000);
+        expect(left).toBeLessThanOrEqual(60 * 60 * 1000);
+
+        await users.updateOne(
+          { email: EMAIL },
+          { [lockedUntil]: secondsAgo(1) },
+        );
+        // Первая ошибка после блокировки — снова просто «неверный код».
+        await enterWrong(1);
+        await enter(code);
+        expect(await accepted()).toBe(true);
+      });
+
+      it('верный ввод обнуляет счётчик', async () => {
+        const code = await start();
+        await enterWrong(4);
+        await enter(code);
+        expect((await field(attempts)) ?? 0).toBe(0);
+      });
+
+      it('параллельные неверные вводы не обходят счётчик', async () => {
+        const code = await start();
+        const results = await Promise.allSettled(
+          Array.from({ length: 10 }, () => enter(WRONG)),
+        );
+        const wrong = results.filter(
+          (r) =>
+            r.status === 'rejected' &&
+            (r.reason as Error).message.startsWith('Неверный код'),
+        );
+        expect(wrong).toHaveLength(5);
+        await expect(enter(code)).rejects.toThrow(LOCKED);
+      });
+    },
+  );
 });
