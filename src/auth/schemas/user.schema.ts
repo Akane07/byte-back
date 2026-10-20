@@ -29,6 +29,14 @@ export class User {
   @Prop({ select: false })
   verification_token?: string;
 
+  /** Неверные попытки ввода кода подтверждения почты. */
+  @Prop({ select: false })
+  verify_attempts?: number;
+
+  /** До этого времени ввод кода подтверждения заблокирован. */
+  @Prop({ select: false })
+  verify_locked_until?: Date;
+
   /** SHA-256 кода восстановления пароля: сам код в базе не хранится. */
   @Prop({ select: false })
   reset_code?: string;
@@ -39,6 +47,10 @@ export class User {
   /** Неверные попытки ввода кода восстановления. */
   @Prop({ select: false })
   reset_attempts?: number;
+
+  /** До этого времени ввод кода восстановления заблокирован. */
+  @Prop({ select: false })
+  reset_locked_until?: Date;
 
   /** Когда отправлено последнее письмо с кодом — для паузы между письмами. */
   @Prop({ select: false })

@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
   Param,
   Patch,
   Post,
@@ -131,8 +132,14 @@ export class OrderController {
   }
 
   @Post(':id/viewed')
+  @HttpCode(204)
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Отметить заказ просмотренным' })
+  @ApiResponse({ status: 204, description: 'Просмотр записан, тело пустое' })
+  @ApiResponse({
+    status: 404,
+    description: 'Заказа нет или это чужой черновик',
+  })
   viewOrder(
     @UserId() userId: string,
     @Param('id', ParseObjectIdPipe) id: string,

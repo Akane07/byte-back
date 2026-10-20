@@ -305,16 +305,16 @@ export class OrderService {
     });
   }
 
+  /**
+   * Видимость — как в getOrder. Ответ пустой: раньше здесь возвращался
+   * заказ целиком, с адресом и содержимым чужого черновика.
+   */
   async viewOrder(userId: string, orderId: string) {
-    const order = await this.orderModel.findByIdAndUpdate(
-      orderId,
+    await this.getOrder(orderId, userId);
+    await this.orderModel.updateOne(
+      { _id: orderId },
       { $addToSet: { viewed_by: userId } },
-      { new: true },
     );
-    if (!order) {
-      throw new NotFoundException('Заказ не найден');
-    }
-    return order;
   }
 
   async deleteOrderResponse(userId: string, responseId: string) {
@@ -375,6 +375,10 @@ export class OrderService {
 
     if (order.user_id !== customerId || !participants.includes(performerId)) {
       throw new ForbiddenException('Заказ не принадлежит участникам диалога');
+    }
+    // Статус у черновика и заказа в архиве — active, его проверки мало.
+    if (order.draft || !order.is_active) {
+      throw new BadRequestException('Заказ снят с публикации');
     }
     if (order.performer || order.status !== 'active') {
       throw new BadRequestException('У заказа уже есть исполнитель');

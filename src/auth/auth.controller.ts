@@ -44,7 +44,8 @@ export class AuthController {
   @HttpCode(200)
   @ApiOperation({
     summary: 'Подтверждение почты',
-    description: 'Подтверждает почту кодом из письма и возвращает токен.',
+    description:
+      'Подтверждает почту кодом из письма и возвращает токен. После 5 неверных вводов ввод кода блокируется на час.',
   })
   @ApiResponse({ status: 200, description: 'Токен', type: AccessToken })
   verify(@Body() dto: VerifyUserDto) {
@@ -78,7 +79,8 @@ export class AuthController {
   @HttpCode(200)
   @ApiOperation({
     summary: 'Восстановление пароля: проверить код',
-    description: 'Код живёт 15 минут, после 5 неверных вводов сгорает.',
+    description:
+      'Код живёт 15 минут. После 5 неверных вводов ввод кода блокируется на час, новый код блокировку не снимает.',
   })
   checkRecoveryCode(@Body() dto: RecoveryCodeDto) {
     return this.authService.checkPasswordResetCode(dto.email, dto.code);
