@@ -19,7 +19,7 @@ import { Model } from 'mongoose';
 import { promisify } from 'util';
 import { MailService } from '../mail/mail.service';
 import { CreateUserDto } from './dto/create-user.dto';
-import { User } from './schemas/user.schema';
+import { User, UserDocument } from './schemas/user.schema';
 
 const pbkdf2Async = promisify(pbkdf2);
 
@@ -28,14 +28,22 @@ const HASH_ITERATIONS = 210_000;
 /** С таким числом итераций хешировались пароли до рефакторинга. */
 const LEGACY_HASH_ITERATIONS = 1000;
 const SECRET_FIELDS = '+passwordHash +salt +hash_iterations';
-const RESET_FIELDS = '+reset_code +reset_expires +reset_attempts';
+const RESET_FIELDS = '+reset_code +reset_expires +reset_locked_until';
 
 /** Сколько живёт код восстановления пароля. */
 const RESET_CODE_TTL_MS = 15 * 60 * 1000;
-/** Сколько неверных вводов кода допускается, прежде чем он сгорит. */
-const RESET_MAX_ATTEMPTS = 5;
+/** Сколько неверных вводов кода допускается до блокировки ввода. */
+const CODE_MAX_ATTEMPTS = 5;
+/**
+ * На сколько блокируется ввод кода. Новый код блокировку не снимает:
+ * иначе перебор шёл бы по CODE_MAX_ATTEMPTS попыток на каждое письмо.
+ */
+const CODE_LOCK_MS = 60 * 60 * 1000;
 /** Пауза между письмами с кодом одному пользователю. */
 const RESEND_COOLDOWN_MS = 60 * 1000;
+
+/** Счётчик и блокировка — раздельные для двух видов кода. */
+type CodeKind = 'verify' | 'reset';
 
 @Injectable()
 export class AuthService {
@@ -96,14 +104,22 @@ export class AuthService {
   }
 
   async verifyUser(email: string, token: string) {
-    const user = await this.userModel.findOneAndUpdate(
-      { email, verification_token: token, is_verified: false },
-      { is_verified: true, $unset: { verification_token: 1 } },
-    );
-
-    if (!user) {
-      throw new BadRequestException('Неверный код подтверждения');
+    const user = await this.userModel
+      .findOne({ email, is_verified: false })
+      .select('+verification_token +verify_locked_until');
+    const wrong = 'Неверный код подтверждения';
+    if (!user?.verification_token) {
+      throw new BadRequestException(wrong);
     }
+
+    await this.spendAttempt(
+      user,
+      'verify',
+      this.sameCode(this.hashCode(user.verification_token), token),
+      wrong,
+    );
+    user.set({ is_verified: true, verification_token: undefined });
+    await user.save();
 
     return { access_token: this.generateToken(user.id) };
   }
@@ -148,7 +164,6 @@ export class AuthService {
     user.set({
       reset_code: this.hashCode(code),
       reset_expires: new Date(Date.now() + RESET_CODE_TTL_MS),
-      reset_attempts: 0,
       code_sent_at: new Date(),
     });
     await user.save();
@@ -179,7 +194,6 @@ export class AuthService {
       verification_token: undefined,
       reset_code: undefined,
       reset_expires: undefined,
-      reset_attempts: undefined,
     });
     await user.save();
 
@@ -236,16 +250,14 @@ export class AuthService {
     );
   }
 
-  /**
-   * Пользователь с действующим кодом восстановления. Каждый неверный ввод
-   * засчитывается: после RESET_MAX_ATTEMPTS код сгорает, и шесть цифр
-   * нельзя перебрать.
-   */
+  /** Пользователь с действующим кодом восстановления. */
   private async findUserByResetCode(email: string, code: string) {
     const user = await this.userModel.findOne({ email }).select(RESET_FIELDS);
-    const invalid = new BadRequestException('Неверный код');
+    const wrong = 'Неверный код';
 
-    if (!user?.reset_code || !user.reset_expires) throw invalid;
+    if (!user?.reset_code || !user.reset_expires) {
+      throw new BadRequestException(wrong);
+    }
 
     if (user.reset_expires.getTime() < Date.now()) {
       throw new BadRequestException(
@@ -253,26 +265,79 @@ export class AuthService {
       );
     }
 
-    const attempts = user.reset_attempts ?? 0;
-    if (attempts >= RESET_MAX_ATTEMPTS) {
+    await this.spendAttempt(
+      user,
+      'reset',
+      this.sameCode(user.reset_code, code),
+      wrong,
+    );
+    return user;
+  }
+
+  /**
+   * Одно правило для кода подтверждения и кода восстановления: после
+   * CODE_MAX_ATTEMPTS неверных вводов ввод блокируется на CODE_LOCK_MS,
+   * верный ввод обнуляет счётчик, после блокировки счёт идёт заново.
+   *
+   * Попытка списывается одним атомарным запросом до ответа: если сначала
+   * прочитать счётчик, а потом записать, параллельные запросы видят одно
+   * и то же значение и проверяют кодов больше лимита.
+   */
+  private async spendAttempt(
+    user: UserDocument,
+    kind: CodeKind,
+    correct: boolean,
+    wrongMessage: string,
+  ) {
+    const attempts = `${kind}_attempts`;
+    const lockedUntil = `${kind}_locked_until`;
+
+    await this.userModel.updateOne(
+      { _id: user._id, [lockedUntil]: { $lte: new Date() } },
+      { $unset: { [attempts]: 1, [lockedUntil]: 1 } },
+    );
+    const spent = await this.userModel
+      .findOneAndUpdate(
+        { _id: user._id, [attempts]: { $not: { $gte: CODE_MAX_ATTEMPTS } } },
+        { $inc: { [attempts]: 1 } },
+        { new: true },
+      )
+      .select(`+${attempts}`);
+
+    if (!spent) {
+      const until = user.get(lockedUntil) as Date | undefined;
+      const left = (until?.getTime() ?? Date.now() + CODE_LOCK_MS) - Date.now();
+      const minutes = Math.max(1, Math.ceil(left / 60_000));
       throw new BadRequestException(
-        'Слишком много неверных попыток, запросите новый код',
+        `Слишком много неверных попыток, попробуйте через ${minutes} мин`,
       );
     }
-
-    const expected = Buffer.from(user.reset_code, 'hex');
-    const actual = Buffer.from(this.hashCode(code), 'hex');
-    if (!timingSafeEqual(expected, actual)) {
-      user.reset_attempts = attempts + 1;
-      await user.save();
-      throw invalid;
+    if (correct) {
+      await this.userModel.updateOne(
+        { _id: user._id },
+        { $unset: { [attempts]: 1, [lockedUntil]: 1 } },
+      );
+      return;
     }
-
-    return user;
+    if ((spent.get(attempts) as number) >= CODE_MAX_ATTEMPTS) {
+      await this.userModel.updateOne(
+        { _id: user._id },
+        { [lockedUntil]: new Date(Date.now() + CODE_LOCK_MS) },
+      );
+    }
+    throw new BadRequestException(wrongMessage);
   }
 
   private hashCode(code: string) {
     return createHash('sha256').update(code).digest('hex');
+  }
+
+  /** Код против его SHA-256 — за постоянное время. */
+  private sameCode(expectedHash: string, code: string) {
+    return timingSafeEqual(
+      Buffer.from(expectedHash, 'hex'),
+      Buffer.from(this.hashCode(code), 'hex'),
+    );
   }
 
   private inCooldown(sentAt?: Date) {
