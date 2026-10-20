@@ -279,9 +279,9 @@ export class AuthService {
    * CODE_MAX_ATTEMPTS неверных вводов ввод блокируется на CODE_LOCK_MS,
    * верный ввод обнуляет счётчик, после блокировки счёт идёт заново.
    *
-   * Попытка списывается одним атомарным запросом до ответа: если сначала
-   * прочитать счётчик, а потом записать, параллельные запросы видят одно
-   * и то же значение и проверяют кодов больше лимита.
+   * Попытка списывается одним атомарным запросом до ответа, и пятая в нём
+   * же ставит блокировку: если сначала прочитать счётчик, а потом записать,
+   * параллельные запросы видят одно значение и проверяют кодов больше лимита.
    */
   private async spendAttempt(
     user: UserDocument,
@@ -291,18 +291,41 @@ export class AuthService {
   ) {
     const attempts = `${kind}_attempts`;
     const lockedUntil = `${kind}_locked_until`;
+    const now = Date.now();
 
+    // Блокировка кончилась — счёт заново. Счётчик без блокировки остался
+    // от старой версии, где после пяти ошибок сгорал только сам код.
     await this.userModel.updateOne(
-      { _id: user._id, [lockedUntil]: { $lte: new Date() } },
+      {
+        _id: user._id,
+        $or: [
+          { [lockedUntil]: { $lte: new Date(now) } },
+          {
+            [attempts]: { $gte: CODE_MAX_ATTEMPTS },
+            [lockedUntil]: { $exists: false },
+          },
+        ],
+      },
       { $unset: { [attempts]: 1, [lockedUntil]: 1 } },
     );
-    const spent = await this.userModel
-      .findOneAndUpdate(
-        { _id: user._id, [attempts]: { $not: { $gte: CODE_MAX_ATTEMPTS } } },
-        { $inc: { [attempts]: 1 } },
-        { new: true },
-      )
-      .select(`+${attempts}`);
+    const count = { $add: [{ $ifNull: [`$${attempts}`, 0] }, 1] };
+    const spent = await this.userModel.findOneAndUpdate(
+      { _id: user._id, [attempts]: { $not: { $gte: CODE_MAX_ATTEMPTS } } },
+      [
+        {
+          $set: {
+            [attempts]: count,
+            [lockedUntil]: {
+              $cond: [
+                { $gte: [count, CODE_MAX_ATTEMPTS] },
+                new Date(now + CODE_LOCK_MS),
+                '$$REMOVE',
+              ],
+            },
+          },
+        },
+      ],
+    );
 
     if (!spent) {
       const until = user.get(lockedUntil) as Date | undefined;
@@ -318,12 +341,6 @@ export class AuthService {
         { $unset: { [attempts]: 1, [lockedUntil]: 1 } },
       );
       return;
-    }
-    if ((spent.get(attempts) as number) >= CODE_MAX_ATTEMPTS) {
-      await this.userModel.updateOne(
-        { _id: user._id },
-        { [lockedUntil]: new Date(Date.now() + CODE_LOCK_MS) },
-      );
     }
     throw new BadRequestException(wrongMessage);
   }

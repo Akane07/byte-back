@@ -371,6 +371,13 @@ describe('AuthService', () => {
         expect((await field(attempts)) ?? 0).toBe(0);
       });
 
+      it('счётчик без блокировки (от старой версии) не блокирует навсегда', async () => {
+        const code = await start();
+        await users.updateOne({ email: EMAIL }, { [attempts]: 5 });
+        await enter(code);
+        expect(await accepted()).toBe(true);
+      });
+
       it('параллельные неверные вводы не обходят счётчик', async () => {
         const code = await start();
         const results = await Promise.allSettled(
