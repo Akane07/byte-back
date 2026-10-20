@@ -1,4 +1,4 @@
-import { MongoMemoryServer } from 'mongodb-memory-server';
+import { MongoMemoryServer } from 'mongodb-memory-server-core';
 import { Connection, createConnection } from 'mongoose';
 import { DB_START_TIMEOUT, startTestDb, TestDb } from './mongo';
 
