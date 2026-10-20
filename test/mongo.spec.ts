@@ -1,6 +1,6 @@
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import { Connection, createConnection } from 'mongoose';
-import { startTestDb, TestDb } from './mongo';
+import { DB_START_TIMEOUT, startTestDb, TestDb } from './mongo';
 
 describe('тестовая база', () => {
   let db: TestDb;
@@ -17,7 +17,7 @@ describe('тестовая база', () => {
       startTestDb(),
       MongoMemoryServer.create(),
     ]);
-  });
+  }, DB_START_TIMEOUT);
 
   afterAll(async () => {
     await Promise.all(connections.map((c) => c.close()));

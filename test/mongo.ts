@@ -2,6 +2,9 @@ import { MongoMemoryServer } from 'mongodb-memory-server';
 import { Connection } from 'mongoose';
 import { resolve } from 'path';
 
+/** Таймаут для beforeAll, где стартует mongod: на Windows запуск занимает несколько секунд. */
+export const DB_START_TIMEOUT = 30_000;
+
 export interface TestDb {
   uri: string;
   /** Проверить, что приложение подключено к этой базе; без этого clear() не работает. */
