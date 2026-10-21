@@ -1,6 +1,7 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { getConnectionToken } from '@nestjs/mongoose';
 import { Test, TestingModule } from '@nestjs/testing';
+import { ThrottlerGuard } from '@nestjs/throttler';
 import { AddressInfo } from 'net';
 import { Socket } from 'socket.io-client';
 import * as request from 'supertest';
@@ -51,6 +52,10 @@ describe('e2e: заказ от регистрации до рейтинга', ()
     moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(MailService)
       .useValue(mail)
+      // Здесь семь регистраций подряд с одного IP; лимиты /auth проверяет
+      // auth-throttle.e2e-spec.ts.
+      .overrideGuard(ThrottlerGuard)
+      .useValue({ canActivate: () => true })
       .compile();
     // До init: при старте модули пишут в базу (категории, публикация отзывов).
     await db.attach(moduleRef.get(getConnectionToken()));

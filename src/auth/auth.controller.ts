@@ -1,6 +1,13 @@
 import { Body, Controller, HttpCode, Post, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiResponse,
+  ApiTooManyRequestsResponse,
+} from '@nestjs/swagger';
+import { ThrottlerGuard } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
+import { AUTH_LIMITS, AuthLimit } from './auth.throttle';
 import { UserId } from './current-user.decorator';
 import {
   AccessToken,
@@ -14,10 +21,16 @@ import {
 import { JwtAuthGuard } from './jwt-auth.guard';
 
 @Controller('auth')
+@UseGuards(ThrottlerGuard)
+@ApiTooManyRequestsResponse({
+  description:
+    'Превышен лимит запросов с этого IP; повторить можно через Retry-After секунд',
+})
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Post('register')
+  @AuthLimit(AUTH_LIMITS.register)
   @HttpCode(200)
   @ApiOperation({
     summary: 'Регистрация',
@@ -30,6 +43,7 @@ export class AuthController {
   }
 
   @Post('login')
+  @AuthLimit(AUTH_LIMITS.login)
   @HttpCode(200)
   @ApiOperation({
     summary: 'Вход',
@@ -41,6 +55,7 @@ export class AuthController {
   }
 
   @Post('verify')
+  @AuthLimit(AUTH_LIMITS.code)
   @HttpCode(200)
   @ApiOperation({
     summary: 'Подтверждение почты',
@@ -53,6 +68,7 @@ export class AuthController {
   }
 
   @Post('verify/resend')
+  @AuthLimit(AUTH_LIMITS.mail)
   @HttpCode(200)
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
@@ -65,6 +81,7 @@ export class AuthController {
   }
 
   @Post('recovery')
+  @AuthLimit(AUTH_LIMITS.mail)
   @HttpCode(200)
   @ApiOperation({
     summary: 'Восстановление пароля: запросить код',
@@ -76,6 +93,7 @@ export class AuthController {
   }
 
   @Post('recovery/verify')
+  @AuthLimit(AUTH_LIMITS.code)
   @HttpCode(200)
   @ApiOperation({
     summary: 'Восстановление пароля: проверить код',
@@ -87,6 +105,7 @@ export class AuthController {
   }
 
   @Post('recovery/reset')
+  @AuthLimit(AUTH_LIMITS.code)
   @HttpCode(200)
   @ApiOperation({
     summary: 'Восстановление пароля: задать новый',
