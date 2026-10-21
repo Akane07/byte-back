@@ -261,6 +261,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       message.orderId!,
       [message.senderId, message.receiverId],
       performerId,
+      actorId,
     );
     await this.chatService.setStatus(message, 'accepted');
 

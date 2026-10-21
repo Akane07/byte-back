@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ForbiddenException,
+  HttpException,
   NotFoundException,
 } from '@nestjs/common';
 import {
@@ -11,9 +12,13 @@ import {
 import { Test, TestingModule } from '@nestjs/testing';
 import { Model, Types } from 'mongoose';
 import { DB_START_TIMEOUT, startTestDb, TestDb } from '../../test/mongo';
+import {
+  EMAIL_NOT_VERIFIED,
+  EmailNotVerifiedException,
+} from '../auth/email-not-verified.exception';
 import { UserService } from '../user/user.service';
 import { CreateOrderDto } from './dto/create-order.dto';
-import { OrderService } from './order.service';
+import { isListed, OrderService } from './order.service';
 import {
   Order,
   OrderResponse,
@@ -27,6 +32,8 @@ const newId = () => new Types.ObjectId().toString();
 const customer = newId();
 const performer = newId();
 const stranger = newId();
+/** Кто не подтвердил почту; по умолчанию подтвердили все. */
+const unverified = new Set<string>();
 
 const dto = (fields: Partial<CreateOrderDto> = {}) =>
   ({
@@ -59,7 +66,16 @@ describe('OrderService', () => {
       ],
       providers: [
         OrderService,
-        { provide: UserService, useValue: { setOrdersCount: jest.fn() } },
+        {
+          provide: UserService,
+          useValue: {
+            setOrdersCount: jest.fn(),
+            getUser: jest.fn(async (id: string) => ({
+              id,
+              is_verified: !unverified.has(id),
+            })),
+          },
+        },
       ],
     }).compile();
     await db.attach(moduleRef.get(getConnectionToken()));
@@ -68,7 +84,10 @@ describe('OrderService', () => {
     responses = moduleRef.get(getModelToken(OrderResponse.name));
   }, DB_START_TIMEOUT);
 
-  afterEach(() => db.clear());
+  afterEach(() => {
+    unverified.clear();
+    return db.clear();
+  });
 
   afterAll(async () => {
     await moduleRef?.close();
@@ -100,6 +119,7 @@ describe('OrderService', () => {
         draft.id,
         [customer, performer],
         performer,
+        customer,
       );
       expect(assigned).toMatchObject({ status: 'pending', performer });
 
@@ -116,7 +136,12 @@ describe('OrderService', () => {
     it('исполнитель может принять предложение, отправленное ему заказчиком', async () => {
       const order = await seed();
       // В диалоге участники в любом порядке: [исполнитель, заказчик].
-      await service.assignPerformer(order.id, [performer, customer], performer);
+      await service.assignPerformer(
+        order.id,
+        [performer, customer],
+        performer,
+        performer,
+      );
       expect(await statusOf(order.id)).toBe('pending');
     });
 
@@ -135,18 +160,28 @@ describe('OrderService', () => {
       const order = await inStatus('pending');
       const other = newId();
       await expect(
-        service.assignPerformer(order.id, [customer, other], other),
+        service.assignPerformer(order.id, [customer, other], other, customer),
       ).rejects.toThrow(BadRequestException);
     });
 
     it('исполнителя назначает только диалог с автором заказа', async () => {
       const order = await seed();
       await expect(
-        service.assignPerformer(order.id, [stranger, performer], performer),
+        service.assignPerformer(
+          order.id,
+          [stranger, performer],
+          performer,
+          performer,
+        ),
       ).rejects.toThrow(ForbiddenException);
       // Исполнитель не участник диалога.
       await expect(
-        service.assignPerformer(order.id, [customer, stranger], performer),
+        service.assignPerformer(
+          order.id,
+          [customer, stranger],
+          performer,
+          customer,
+        ),
       ).rejects.toThrow(ForbiddenException);
       expect(await statusOf(order.id)).toBe('active');
     });
@@ -154,7 +189,12 @@ describe('OrderService', () => {
     it('черновику исполнителя назначить нельзя', async () => {
       const order = await seed({ draft: true });
       await expect(
-        service.assignPerformer(order.id, [customer, performer], performer),
+        service.assignPerformer(
+          order.id,
+          [customer, performer],
+          performer,
+          customer,
+        ),
       ).rejects.toThrow(BadRequestException);
       expect(await statusOf(order.id)).toBe('active');
     });
@@ -162,7 +202,12 @@ describe('OrderService', () => {
     it('заказу в архиве исполнителя назначить нельзя', async () => {
       const order = await seed({ is_active: false });
       await expect(
-        service.assignPerformer(order.id, [customer, performer], performer),
+        service.assignPerformer(
+          order.id,
+          [customer, performer],
+          performer,
+          customer,
+        ),
       ).rejects.toThrow(BadRequestException);
       expect(await statusOf(order.id)).toBe('active');
     });
@@ -203,6 +248,188 @@ describe('OrderService', () => {
       await expect(
         service.reviewWork(pending.id, customer, true),
       ).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('подтверждение почты', () => {
+    const PUBLISH =
+      'Подтвердите почту, чтобы опубликовать заказ. Черновик можно сохранить и без этого';
+
+    const errorOf = (promise: Promise<unknown>) =>
+      promise.then(
+        () => {
+          throw new Error('Ожидалась ошибка, а действие прошло');
+        },
+        (error: unknown) => error,
+      );
+
+    /** 403 с кодом, по которому фронт откроет окно подтверждения. */
+    const expectNotVerified = async (
+      promise: Promise<unknown>,
+      message: string,
+    ) => {
+      const error = await errorOf(promise);
+      expect(error).toBeInstanceOf(EmailNotVerifiedException);
+      expect((error as HttpException).getResponse()).toEqual({
+        statusCode: 403,
+        error: 'Forbidden',
+        code: EMAIL_NOT_VERIFIED,
+        message,
+      });
+    };
+
+    /** 400 без кода: почту не подтвердила другая сторона. */
+    const expectOtherSide = async (
+      promise: Promise<unknown>,
+      message: string,
+    ) => {
+      const error = await errorOf(promise);
+      expect(error).toBeInstanceOf(BadRequestException);
+      expect((error as HttpException).message).toBe(message);
+    };
+
+    it('isListed: в ленте — опубликованный заказ в статусе active', () => {
+      const listed = {
+        status: 'active',
+        draft: false,
+        is_active: true,
+      } as const;
+      expect(isListed(listed)).toBe(true);
+      expect(isListed({ ...listed, draft: true })).toBe(false);
+      expect(isListed({ ...listed, is_active: false })).toBe(false);
+      expect(isListed({ ...listed, status: 'pending' })).toBe(false);
+    });
+
+    it('черновик сохраняется без подтверждения, опубликовать сразу нельзя', async () => {
+      unverified.add(customer);
+      const draft = await service.createOrder(customer, dto({ draft: true }));
+      expect(draft.draft).toBe(true);
+
+      await expectNotVerified(service.createOrder(customer, dto()), PUBLISH);
+      expect(await orders.countDocuments()).toBe(1);
+    });
+
+    it('публикация — и из черновика, и из архива; правка без публикации проходит', async () => {
+      unverified.add(customer);
+      const draft = await seed({ draft: true });
+      const archived = await seed({ is_active: false });
+
+      await expectNotVerified(
+        service.updateOrder(draft.id, { draft: false }, customer),
+        PUBLISH,
+      );
+      await expectNotVerified(
+        service.updateOrder(archived.id, { is_active: true }, customer),
+        PUBLISH,
+      );
+      expect(await orders.findById(draft.id).lean()).toMatchObject({
+        draft: true,
+      });
+      expect(await orders.findById(archived.id).lean()).toMatchObject({
+        is_active: false,
+      });
+
+      await service.updateOrder(draft.id, { title: 'Пекарня' }, customer);
+      await service.updateOrder(archived.id, { title: 'Пекарня' }, customer);
+    });
+
+    it('заказ, опубликованный до подтверждения, можно править и отправить в архив', async () => {
+      unverified.add(customer);
+      const order = await seed();
+      await service.updateOrder(
+        order.id,
+        { title: 'Пекарня', draft: false, is_active: true },
+        customer,
+      );
+      await service.archiveOrder(order.id, customer);
+      expect(await orders.findById(order.id).lean()).toMatchObject({
+        title: 'Пекарня',
+        is_active: false,
+      });
+    });
+
+    it('откликнуться нельзя', async () => {
+      unverified.add(performer);
+      const order = await seed();
+      await expectNotVerified(
+        service.createOrderResponse(order.id, performer, 'Возьмусь'),
+        'Подтвердите почту, чтобы откликнуться на заказ',
+      );
+      expect(await responses.countDocuments()).toBe(0);
+      expect((await orders.findById(order.id).lean())?.response_count).toBe(0);
+    });
+
+    it('назначение: не подтвердил тот, кто принимает, — 403 с кодом', async () => {
+      const order = await seed();
+
+      unverified.add(performer);
+      await expectNotVerified(
+        service.assignPerformer(
+          order.id,
+          [customer, performer],
+          performer,
+          performer,
+        ),
+        'Подтвердите почту, чтобы взять заказ',
+      );
+
+      unverified.clear();
+      unverified.add(customer);
+      await expectNotVerified(
+        service.assignPerformer(
+          order.id,
+          [performer, customer],
+          performer,
+          customer,
+        ),
+        'Подтвердите почту, чтобы выбрать исполнителя',
+      );
+      expect(await statusOf(order.id)).toBe('active');
+    });
+
+    it('назначение: не подтвердила другая сторона — 400 и кто именно', async () => {
+      const order = await seed();
+
+      // Старый отклик неподтверждённого исполнителя принимает заказчик.
+      unverified.add(performer);
+      await expectOtherSide(
+        service.assignPerformer(
+          order.id,
+          [performer, customer],
+          performer,
+          customer,
+        ),
+        'Исполнитель ещё не подтвердил почту',
+      );
+
+      // Заказ опубликован до подтверждения, исполнитель принимает предложение.
+      unverified.clear();
+      unverified.add(customer);
+      await expectOtherSide(
+        service.assignPerformer(
+          order.id,
+          [customer, performer],
+          performer,
+          performer,
+        ),
+        'Заказчик ещё не подтвердил почту',
+      );
+      expect(await statusOf(order.id)).toBe('active');
+    });
+
+    it('не подтвердили оба — просим подтвердить того, кто принимает', async () => {
+      const order = await seed();
+      unverified.add(customer);
+      unverified.add(performer);
+      await expectNotVerified(
+        service.assignPerformer(
+          order.id,
+          [customer, performer],
+          performer,
+          performer,
+        ),
+        'Подтвердите почту, чтобы взять заказ',
+      );
     });
   });
 

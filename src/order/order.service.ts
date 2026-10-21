@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { FilterQuery, Model } from 'mongoose';
+import { EmailNotVerifiedException } from '../auth/email-not-verified.exception';
 import { escapeRegExp } from '../common/escape-regexp';
 import { contributions } from '../ranking/ranking.math';
 import { UserService } from '../user/user.service';
@@ -23,6 +24,8 @@ import {
 } from './schemas/order.schema';
 
 const PAGE_SIZE = 10;
+const PUBLISH_REASON =
+  'опубликовать заказ. Черновик можно сохранить и без этого';
 
 @Injectable()
 export class OrderService {
@@ -127,6 +130,9 @@ export class OrderService {
   async createOrder(userId: string, dto: CreateOrderDto) {
     const order = new this.orderModel({ ...dto, user_id: userId });
     normalizeLocation(order);
+    if (isListed(order)) {
+      await this.assertVerified(userId, PUBLISH_REASON);
+    }
     await order.save();
     await this.syncOrdersCount(userId);
     return order;
@@ -138,8 +144,13 @@ export class OrderService {
     // Дата публикации ставится в момент выхода из черновика, а не при
     // каждом редактировании — иначе любая правка поднимала заказ в ленте.
     const publishing = order.draft && dto.draft === false;
+    const wasListed = isListed(order);
     order.set(dto);
     normalizeLocation(order);
+    // Правка заказа, который уже в ленте, публикацией не считается.
+    if (!wasListed && isListed(order)) {
+      await this.assertVerified(userId, PUBLISH_REASON);
+    }
     if (publishing) {
       order.created_at = new Date();
     }
@@ -193,6 +204,7 @@ export class OrderService {
     if (existing) {
       throw new BadRequestException('Вы уже откликнулись на этот заказ');
     }
+    await this.assertVerified(userId, 'откликнуться на заказ');
 
     const response = await this.orderResponseModel.create({
       order_id: orderId,
@@ -363,11 +375,13 @@ export class OrderService {
    * Назначает исполнителя. Вызывается при принятии предложения в чате:
    * заказчик выбирает исполнителя, либо исполнитель принимает предложение
    * заказчика. В обоих случаях заказ принадлежит одному из двух участников.
+   * actorId — тот, кто нажал «Принять».
    */
   async assignPerformer(
     orderId: string,
     participants: [string, string],
     performerId: string,
+    actorId: string,
   ) {
     const order = await this.findOrder(orderId);
     const [a, b] = participants;
@@ -383,6 +397,7 @@ export class OrderService {
     if (order.performer || order.status !== 'active') {
       throw new BadRequestException('У заказа уже есть исполнитель');
     }
+    await this.assertDealVerified(customerId, performerId, actorId);
 
     order.performer = performerId;
     order.status = 'pending';
@@ -438,6 +453,40 @@ export class OrderService {
     });
   }
 
+  private async assertVerified(userId: string, reason: string) {
+    const user = await this.userService.getUser(userId);
+    if (!user.is_verified) {
+      throw new EmailNotVerifiedException(`Подтвердите почту, чтобы ${reason}`);
+    }
+  }
+
+  /**
+   * Сделка — только между подтверждёнными: так в неё не попадут ни отклики,
+   * ни заказы, созданные до обязательного подтверждения. Свою почту
+   * подтвердить можно сразу (403 с кодом), про чужую — только сообщить.
+   */
+  private async assertDealVerified(
+    customerId: string,
+    performerId: string,
+    actorId: string,
+  ) {
+    const actorIsPerformer = actorId === performerId;
+    await this.assertVerified(
+      actorId,
+      actorIsPerformer ? 'взять заказ' : 'выбрать исполнителя',
+    );
+    const other = await this.userService.getUser(
+      actorIsPerformer ? customerId : performerId,
+    );
+    if (!other.is_verified) {
+      throw new BadRequestException(
+        actorIsPerformer
+          ? 'Заказчик ещё не подтвердил почту'
+          : 'Исполнитель ещё не подтвердил почту',
+      );
+    }
+  }
+
   private async findOrder(id: string): Promise<OrderDocument> {
     const order = await this.orderModel.findById(id);
     if (!order) {
@@ -470,6 +519,14 @@ export class OrderService {
     });
     await this.userService.setOrdersCount(userId, count);
   }
+}
+
+/**
+ * Заказ ищет исполнителя и виден в ленте. Переход в это состояние —
+ * публикация: из черновика или из архива.
+ */
+export function isListed(order: Pick<Order, 'status' | 'draft' | 'is_active'>) {
+  return order.status === 'active' && !order.draft && order.is_active !== false;
 }
 
 /**

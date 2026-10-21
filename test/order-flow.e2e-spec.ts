@@ -84,29 +84,46 @@ describe('e2e: заказ от регистрации до рейтинга', ()
   });
 
   let seq = 0;
-  /** Регистрация и подтверждение почты кодом из заглушки письма. */
-  const signUp = async (name: string): Promise<Member> => {
+  /** Регистрация без подтверждения почты. */
+  const register = async (name: string): Promise<Member> => {
     const email = `${name}${++seq}@e2e.local`;
-    await api()
+    const { body } = await api()
       .post('/api/v1/auth/register')
       .send({ email, password: PASSWORD, name })
-      .expect(200);
-    const [, code] = mail.sendVerificationEmail.mock.calls.find(
-      ([to]) => to === email,
-    )!;
-    expect(code).toMatch(SIX_DIGITS);
-
-    const { body } = await api()
-      .post('/api/v1/auth/verify')
-      .send({ email, token: code })
       .expect(200);
     const token: string = body.access_token;
     const me = await api()
       .get('/api/v1/user/me')
       .set({ Authorization: `Bearer ${token}` })
       .expect(200);
-    expect(me.body.is_verified).toBe(true);
+    expect(me.body.is_verified).toBe(false);
     return { id: me.body.id, email, token };
+  };
+
+  /**
+   * Подтверждение почты кодом из заглушки письма. Токен из ответа не нужен:
+   * в токене только id, статус почты сервер каждый раз берёт из базы.
+   */
+  const verify = async (member: Member) => {
+    const [, code] = mail.sendVerificationEmail.mock.calls.find(
+      ([to]) => to === member.email,
+    )!;
+    expect(code).toMatch(SIX_DIGITS);
+    await api()
+      .post('/api/v1/auth/verify')
+      .send({ email: member.email, token: code })
+      .expect(200);
+    const me = await api()
+      .get('/api/v1/user/me')
+      .set(bearer(member))
+      .expect(200);
+    expect(me.body.is_verified).toBe(true);
+  };
+
+  const signUp = async (name: string) => {
+    const member = await register(name);
+    await verify(member);
+    return member;
   };
 
   const connect = async (member: Member) => {
@@ -318,6 +335,66 @@ describe('e2e: заказ от регистрации до рейтинга', ()
     expect((await orderOf(orderId, customer)).status).toBe('review');
     const card = await messageOf(customer, performer.id, delivery);
     expect(card?.status).toBeUndefined();
+  });
+
+  it('без подтверждения почты: черновик можно, публикация, отклик и принятие предложения — 403 EMAIL_NOT_VERIFIED', async () => {
+    const customer = await signUp('customer');
+    const performer = await register('performer');
+    const notVerified = (message: string) => ({
+      statusCode: 403,
+      code: 'EMAIL_NOT_VERIFIED',
+      message,
+    });
+
+    const draft = await api()
+      .post('/api/v1/order')
+      .set(bearer(performer))
+      .send({ ...ORDER, draft: true })
+      .expect(201);
+    const publish = await api()
+      .patch(`/api/v1/order/${draft.body.id}`)
+      .set(bearer(performer))
+      .send({ draft: false })
+      .expect(403);
+    expect(publish.body).toMatchObject(
+      notVerified(
+        'Подтвердите почту, чтобы опубликовать заказ. Черновик можно сохранить и без этого',
+      ),
+    );
+
+    const orderId = await createOrder(customer);
+    const response = await api()
+      .post(`/api/v1/order/${orderId}/response`)
+      .set(bearer(performer))
+      .send({ description: 'Сделаю за два дня' })
+      .expect(403);
+    expect(response.body).toMatchObject(
+      notVerified('Подтвердите почту, чтобы откликнуться на заказ'),
+    );
+
+    // Предложение прийти может, принять его — нет: код приходит и по сокету.
+    const [c, p] = await Promise.all([connect(customer), connect(performer)]);
+    const offer = await c.timeout(EVENT_TIMEOUT).emitWithAck('sendMessage', {
+      receiverId: performer.id,
+      is_suggest: true,
+      orderId,
+    });
+    expect(
+      await refusal(p, 'acceptMessage', { messageId: offer.id }),
+    ).toMatchObject({
+      code: 'EMAIL_NOT_VERIFIED',
+      message: 'Подтвердите почту, чтобы взять заказ',
+    });
+    expect((await orderOf(orderId, customer)).performer).toBeUndefined();
+
+    // Подтвердил — со старым токеном и тем же сокетом всё проходит.
+    await verify(performer);
+    for (const order of await accept(p, c, offer.id, orderId)) {
+      expect(order).toMatchObject({
+        status: 'pending',
+        performer: performer.id,
+      });
+    }
   });
 
   it('старый отклик на заказ в архиве принять нельзя: сообщение и заказ не меняются', async () => {

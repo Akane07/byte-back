@@ -189,7 +189,8 @@ async function seed() {
       categories: u.performer?.categories ?? [],
       price_from: u.performer?.priceFrom,
       avatar: u.avatar === undefined ? '' : saveUpload('avatars', `${u.key}.png`, avatar(u.avatar)),
-      is_verified: !!u.verified,
+      // Без подтверждённой почты нельзя публиковать, откликаться и брать заказы.
+      is_verified: true,
       created_at: ago(u.registeredDaysAgo * DAY),
       last_seen: u.lastSeenHoursAgo === undefined ? undefined : ago(u.lastSeenHoursAgo * HOUR).toISOString(),
     });
