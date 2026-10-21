@@ -107,7 +107,7 @@ export class UserController {
       throw new BadRequestException('Файл не передан');
     }
     const avatarUrl = uploadUrl('avatars', file.filename);
-    await this.userService.updateUser(userId, { avatar: avatarUrl });
+    await this.userService.setAvatar(userId, avatarUrl);
     return { avatarUrl };
   }
 

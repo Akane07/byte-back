@@ -3,6 +3,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { FilterQuery, Model } from 'mongoose';
 import { AuthService } from '../auth/auth.service';
 import { escapeRegExp } from '../common/escape-regexp';
+import { filesToRemove, removeUploads } from '../common/uploads';
 import { User, UserDocument } from '../auth/schemas/user.schema';
 import { Order } from '../order/schemas/order.schema';
 import { Ranked, RankingService } from '../ranking/ranking.service';
@@ -36,12 +37,9 @@ export class UserService {
     return toPublicUser(this.assertFound(user));
   }
 
-  async updateUser(
-    userId: string,
-    updateData: UpdateUserDto | { avatar: string },
-  ) {
+  async updateUser(userId: string, updateData: UpdateUserDto) {
     // price_from: null — «цену не указываю»: убираем поле, а не храним null.
-    const { price_from, ...rest } = updateData as UpdateUserDto;
+    const { price_from, ...rest } = updateData;
     const update =
       price_from === null ? { ...rest, $unset: { price_from: 1 } } : updateData;
     const user = await this.userModel.findByIdAndUpdate(userId, update, {
@@ -49,6 +47,19 @@ export class UserService {
       runValidators: true,
     });
     return toPrivateUser(this.assertFound(user));
+  }
+
+  /** Новый аватар; файл прежнего удаляется с диска. */
+  async setAvatar(userId: string, avatar: string) {
+    // returnDocument: 'before' — удаляется ровно тот файл, который заменила эта запись.
+    const before = await this.userModel.findByIdAndUpdate(
+      userId,
+      { avatar },
+      { returnDocument: 'before', projection: { avatar: 1 } },
+    );
+    await removeUploads(
+      filesToRemove([this.assertFound(before).avatar], [avatar]),
+    );
   }
 
   /**

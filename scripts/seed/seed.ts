@@ -15,6 +15,7 @@ import { pbkdf2, randomBytes } from 'crypto';
 import { promisify } from 'util';
 import mongoose, { Types } from 'mongoose';
 import { UserSchema } from '../../src/auth/schemas/user.schema';
+import { UPLOADS_ROOT as UPLOADS } from '../../src/common/uploads';
 import { MessageSchema } from '../../src/chat/schemas/chat.schema';
 import { OrderResponseSchema, OrderSchema } from '../../src/order/schemas/order.schema';
 import { PortfolioSchema } from '../../src/portfolio/schemas/portfolio.schema';
@@ -36,7 +37,6 @@ import {
 import { avatar, cover } from './png';
 
 const ROOT = join(__dirname, '..', '..');
-const UPLOADS = join(ROOT, 'uploads');
 const FILE_PREFIX = 'seed-';
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
