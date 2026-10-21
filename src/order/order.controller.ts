@@ -25,6 +25,9 @@ import { RecommendationsQueryDto } from './dto/recommendations-query.dto';
 import { OrderService } from './order.service';
 import { Order, OrderResponse } from './schemas/order.schema';
 
+const NOT_VERIFIED =
+  'Почта не подтверждена — в ответе code: EMAIL_NOT_VERIFIED';
+
 // Гарды — на каждом методе, а не на классе: гард класса выполняется всегда,
 // и открыть отдельные методы гостю было бы нельзя. Лента, заказ и заказы
 // пользователя доступны без входа (OptionalJwtAuthGuard), остальное — только
@@ -53,6 +56,7 @@ export class OrderController {
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Создать заказ или черновик' })
   @ApiResponse({ status: 201, type: Order })
+  @ApiResponse({ status: 403, description: NOT_VERIFIED })
   createOrder(@UserId() userId: string, @Body() dto: CreateOrderDto) {
     return this.orderService.createOrder(userId, dto);
   }
@@ -102,6 +106,7 @@ export class OrderController {
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Изменить свой заказ' })
   @ApiResponse({ status: 200, type: Order })
+  @ApiResponse({ status: 403, description: NOT_VERIFIED })
   updateOrder(
     @UserId() userId: string,
     @Param('id', ParseObjectIdPipe) id: string,
@@ -151,6 +156,7 @@ export class OrderController {
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Откликнуться на заказ' })
   @ApiResponse({ status: 201, type: OrderResponse })
+  @ApiResponse({ status: 403, description: NOT_VERIFIED })
   createOrderResponse(
     @UserId() userId: string,
     @Param('id', ParseObjectIdPipe) id: string,
