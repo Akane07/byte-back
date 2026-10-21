@@ -1,11 +1,17 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, Logger } from '@nestjs/common';
 import { MulterOptions } from '@nestjs/platform-express/multer/interfaces/multer-options.interface';
 import { randomBytes } from 'crypto';
 import { mkdirSync } from 'fs';
+import { unlink } from 'fs/promises';
 import { diskStorage } from 'multer';
-import { join } from 'path';
+import { join, resolve, sep } from 'path';
 
-export const UPLOADS_ROOT = join(process.cwd(), 'uploads');
+/**
+ * Папка загрузок: multer, раздача /uploads и удаление файлов.
+ * UPLOADS_DIR берётся только из окружения процесса — модуль загружается
+ * раньше, чем ConfigModule читает .env. Тесты так кладут файлы во временную папку.
+ */
+export const UPLOADS_ROOT = resolve(process.env.UPLOADS_DIR || 'uploads');
 
 export type UploadDir = 'avatars' | 'files';
 
@@ -73,6 +79,47 @@ export function ensureUploadDirs() {
 /** Публичный путь к загруженному файлу, как его отдаёт static-раздача. */
 export function uploadUrl(dir: UploadDir, filename: string) {
   return `/uploads/${dir}/${filename}`;
+}
+
+/**
+ * Путь на диске по ссылке /uploads/…. null — не ссылка на загрузку или
+ * путь после разбора выходит за UPLOADS_ROOT (../, абсолютный путь).
+ */
+export function uploadPath(url: string | undefined): string | null {
+  const prefix = '/uploads/';
+  if (!url?.startsWith(prefix)) return null;
+  const path = resolve(UPLOADS_ROOT, url.slice(prefix.length));
+  return path.startsWith(UPLOADS_ROOT + sep) ? path : null;
+}
+
+/** Файлы из before, на которые после изменения больше не ссылаются. */
+export function filesToRemove(
+  before: (string | undefined)[],
+  after: (string | undefined)[],
+): string[] {
+  return before.filter((url): url is string => !!url && !after.includes(url));
+}
+
+const logger = new Logger('Uploads');
+
+/**
+ * Удаляет загруженные файлы. Отсутствующий файл — не ошибка; остальные
+ * ошибки только в лог: запись в базе уже изменена, и ответ от файла не зависит.
+ */
+export async function removeUploads(urls: (string | undefined)[]) {
+  await Promise.all(
+    urls.map(async (url) => {
+      const path = uploadPath(url);
+      if (!path) return;
+      try {
+        await unlink(path);
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+          logger.warn(`Не удалось удалить ${url}: ${(err as Error).message}`);
+        }
+      }
+    }),
+  );
 }
 
 /**

@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
+import { filesToRemove, removeUploads } from '../common/uploads';
 import { PortfolioDto, UpdatePortfolioDto } from './dto/portfolio.dto';
 import { Portfolio, PortfolioDocument } from './schemas/portfolio.schema';
 
@@ -75,21 +76,37 @@ export class PortfolioService {
     const video =
       media.video ?? (dto.video === '' ? undefined : portfolio.video);
 
-    portfolio.set({
-      title: dto.title,
-      description: dto.description,
-      role: dto.role,
-      skills: dto.skills,
-      images,
-      video,
-    });
-    await portfolio.save();
-    return serialize(portfolio);
+    // returnDocument: 'before' — с диска удаляется ровно то, что заменила эта запись.
+    const before = await this.portfolioModel.findOneAndUpdate(
+      { _id: id, user_id: userId },
+      {
+        title: dto.title,
+        description: dto.description,
+        role: dto.role,
+        skills: dto.skills,
+        images,
+        ...(video ? { video } : { $unset: { video: 1 } }),
+      },
+      { returnDocument: 'before', runValidators: true },
+    );
+    if (!before) {
+      throw new NotFoundException('Проект не найден');
+    }
+    await removeUploads(
+      filesToRemove([...before.images, before.video], [...images, video]),
+    );
+    return this.getPortfolio(id);
   }
 
   async deletePortfolio(userId: string, id: string) {
-    const portfolio = await this.findOwnPortfolio(id, userId);
-    await portfolio.deleteOne();
+    const portfolio = await this.portfolioModel.findOneAndDelete({
+      _id: id,
+      user_id: userId,
+    });
+    if (!portfolio) {
+      throw new NotFoundException('Проект не найден');
+    }
+    await removeUploads([...portfolio.images, portfolio.video]);
     return { deleted: true };
   }
 

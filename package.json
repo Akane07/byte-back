@@ -84,6 +84,9 @@
       "<rootDir>/../test"
     ],
     "testRegex": ".*\\.spec\\.ts$",
+    "setupFilesAfterEnv": [
+      "<rootDir>/../test/uploads-dir.ts"
+    ],
     "transform": {
       "^.+\\.(t|j)s$": "ts-jest"
     },
