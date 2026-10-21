@@ -4,6 +4,7 @@ import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app/app.module';
+import { TRUST_PROXY } from './auth/auth.throttle';
 import { CorsIoAdapter } from './common/socket-io.adapter';
 import { extname } from 'path';
 import {
@@ -17,6 +18,9 @@ async function bootstrap() {
 
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
   const config = app.get(ConfigService);
+
+  // IP клиента для лимитов /auth: за прокси на этой же машине — из X-Forwarded-For.
+  app.set('trust proxy', TRUST_PROXY);
 
   const origins = config
     .get<string>('CORS_ORIGIN', 'http://localhost:3000')
