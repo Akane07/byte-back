@@ -396,6 +396,130 @@ describe('OrderService', () => {
     });
   });
 
+  describe('одновременные действия: проходит одно, у заказа один конечный статус', () => {
+    // Гонка зависит от того, в каком порядке база выполнит запросы, —
+    // повторяем на нескольких заказах.
+    const ROUNDS = 10;
+
+    /** Запускает два действия разом; ровно одно должно пройти. */
+    const race = async (first: Promise<unknown>, second: Promise<unknown>) => {
+      const [a, b] = await Promise.allSettled([first, second]);
+      expect([a.status, b.status].sort()).toEqual(['fulfilled', 'rejected']);
+      return a.status === 'fulfilled' ? 'first' : 'second';
+    };
+
+    it('«принять работу» и «принять отмену»', async () => {
+      for (let i = 0; i < ROUNDS; i++) {
+        const order = await inStatus('review');
+        const winner = await race(
+          service.reviewWork(order.id, customer, true),
+          service.cancelDeal(order.id, [performer, customer]),
+        );
+        const saved = await orders.findById(order.id).lean();
+        expect(saved?.status).toBe(
+          winner === 'first' ? 'completed' : 'cancelled',
+        );
+        expect(!!saved?.completed_at).toBe(winner === 'first');
+      }
+    });
+
+    it('«сдать работу» и «принять отмену»: отмена не теряется', async () => {
+      for (let i = 0; i < ROUNDS; i++) {
+        const order = await inStatus('pending');
+        const [submit, cancel] = await Promise.allSettled([
+          service.submitWork(order.id, performer),
+          service.cancelDeal(order.id, [customer, performer]),
+        ]);
+        // Отменить можно и из pending, и из review: если работу успели
+        // сдать раньше, проходят оба шага подряд. Но заказ отменён в любом
+        // случае — сдача не может вернуть отменённый заказ на проверку.
+        expect(cancel.status).toBe('fulfilled');
+        expect(await statusOf(order.id)).toBe('cancelled');
+        expect(['fulfilled', 'rejected']).toContain(submit.status);
+      }
+    });
+
+    it('исполнитель принимает предложение, а автор отменяет заказ', async () => {
+      for (let i = 0; i < ROUNDS; i++) {
+        const order = await seed();
+        const winner = await race(
+          service.assignPerformer(
+            order.id,
+            [customer, performer],
+            performer,
+            performer,
+          ),
+          service.cancelOrder(order.id, customer),
+        );
+        const saved = await orders.findById(order.id).lean();
+        expect(saved?.status).toBe(
+          winner === 'first' ? 'pending' : 'cancelled',
+        );
+        expect(saved?.performer).toBe(
+          winner === 'first' ? performer : undefined,
+        );
+      }
+    });
+
+    it('два исполнителя принимают предложения одного заказа', async () => {
+      const other = newId();
+      for (let i = 0; i < ROUNDS; i++) {
+        const order = await seed();
+        const winner = await race(
+          service.assignPerformer(
+            order.id,
+            [customer, performer],
+            performer,
+            performer,
+          ),
+          service.assignPerformer(order.id, [customer, other], other, other),
+        );
+        expect((await orders.findById(order.id).lean())?.performer).toBe(
+          winner === 'first' ? performer : other,
+        );
+      }
+    });
+
+    it('«в архив» или «в черновик» и «принять отклик»', async () => {
+      const hide = {
+        archive: (id: string) => service.archiveOrder(id, customer),
+        draft: (id: string) =>
+          service.updateOrder(id, { draft: true }, customer),
+      };
+      for (const [action, run] of Object.entries(hide)) {
+        for (let i = 0; i < ROUNDS; i++) {
+          const order = await seed();
+          const winner = await race(
+            run(order.id),
+            service.assignPerformer(
+              order.id,
+              [performer, customer],
+              performer,
+              customer,
+            ),
+          );
+          const saved = await orders.findById(order.id).lean();
+          if (winner === 'first') {
+            expect(saved).toMatchObject({
+              status: 'active',
+              ...(action === 'archive'
+                ? { is_active: false }
+                : { draft: true }),
+            });
+            expect(saved?.performer).toBeUndefined();
+          } else {
+            expect(saved).toMatchObject({
+              status: 'pending',
+              performer,
+              is_active: true,
+              draft: false,
+            });
+          }
+        }
+      }
+    });
+  });
+
   describe('подтверждение почты', () => {
     const PUBLISH =
       'Подтвердите почту, чтобы опубликовать заказ. Черновик можно сохранить и без этого';
