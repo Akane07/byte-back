@@ -251,6 +251,151 @@ describe('OrderService', () => {
     });
   });
 
+  describe('отмена', () => {
+    const HIDE =
+      'Вернуть в черновик или отправить в архив можно только заказ, который ищет исполнителя';
+
+    it('автор сам отменяет заказ без исполнителя — опубликованный и из архива', async () => {
+      for (const fields of [{}, { is_active: false }]) {
+        const order = await seed(fields);
+        const cancelled = await service.cancelOrder(order.id, customer);
+        expect(cancelled.status).toBe('cancelled');
+        expect(await statusOf(order.id)).toBe('cancelled');
+      }
+    });
+
+    it('сам автор не отменяет черновик, заказ с исполнителем, выполненный и уже отменённый', async () => {
+      const cases: [Partial<Order>, string][] = [
+        [{ draft: true }, 'Черновик не отменяют — его можно удалить'],
+        [
+          { status: 'pending', performer },
+          'У заказа есть исполнитель — отмену нужно предложить ему в чате',
+        ],
+        [
+          { status: 'review', performer },
+          'У заказа есть исполнитель — отмену нужно предложить ему в чате',
+        ],
+        [
+          { status: 'completed', performer },
+          'Выполненный заказ отменить нельзя',
+        ],
+        [{ status: 'cancelled' }, 'Заказ уже отменён'],
+      ];
+      for (const [fields, message] of cases) {
+        const order = await seed(fields);
+        await expect(service.cancelOrder(order.id, customer)).rejects.toThrow(
+          new BadRequestException(message),
+        );
+        expect(await statusOf(order.id)).toBe(fields.status ?? 'active');
+      }
+    });
+
+    it('чужой заказ отменить нельзя — 404', async () => {
+      const order = await seed();
+      await expect(service.cancelOrder(order.id, stranger)).rejects.toThrow(
+        NotFoundException,
+      );
+      expect(await statusOf(order.id)).toBe('active');
+    });
+
+    it('отменённый заказ не в ленте, откликнуться и назначить исполнителя нельзя', async () => {
+      const order = await seed({ status: 'cancelled' });
+      expect(
+        (await service.getOrderList(stranger, { page: 1 })).orders,
+      ).toEqual([]);
+      await expect(
+        service.createOrderResponse(order.id, performer, 'Возьмусь'),
+      ).rejects.toThrow(new BadRequestException('Заказ не принимает отклики'));
+      // Старый отклик в чате принимают после отмены.
+      await expect(
+        service.assignPerformer(
+          order.id,
+          [performer, customer],
+          performer,
+          customer,
+        ),
+      ).rejects.toThrow(new BadRequestException('Заказ отменён'));
+      expect(await statusOf(order.id)).toBe('cancelled');
+    });
+
+    it('по согласию: заказ в работе и на проверке → cancelled, участники в любом порядке', async () => {
+      const pending = await inStatus('pending');
+      const review = await inStatus('review');
+      expect(
+        (await service.cancelDeal(pending.id, [customer, performer])).status,
+      ).toBe('cancelled');
+      expect(
+        (await service.cancelDeal(review.id, [performer, customer])).status,
+      ).toBe('cancelled');
+      expect(await statusOf(review.id)).toBe('cancelled');
+    });
+
+    it('по согласию: не в работе или не те участники — отказ, статус прежний', async () => {
+      const refused = new BadRequestException(
+        'Заказ уже не в работе — отменить его нельзя',
+      );
+      for (const status of ['active', 'completed', 'cancelled'] as const) {
+        const order = await seed({ status, performer });
+        await expect(
+          service.cancelDeal(order.id, [customer, performer]),
+        ).rejects.toThrow(refused);
+        expect(await statusOf(order.id)).toBe(status);
+      }
+      const order = await inStatus('pending');
+      await expect(
+        service.cancelDeal(order.id, [customer, stranger]),
+      ).rejects.toThrow(refused);
+      expect(await statusOf(order.id)).toBe('pending');
+    });
+
+    it('предложить отмену могут только участники и только заказа в работе или на проверке', async () => {
+      const order = await inStatus('review');
+      expect((await service.getDealToCancel(order.id, performer)).id).toBe(
+        order.id,
+      );
+      expect((await service.getDealToCancel(order.id, customer)).id).toBe(
+        order.id,
+      );
+      await expect(service.getDealToCancel(order.id, stranger)).rejects.toThrow(
+        ForbiddenException,
+      );
+
+      for (const status of ['active', 'completed', 'cancelled'] as const) {
+        const other = await seed({ status, performer });
+        await expect(
+          service.getDealToCancel(other.id, customer),
+        ).rejects.toThrow(BadRequestException);
+      }
+    });
+
+    it('заказ с исполнителем и отменённый не уходят в черновик и в архив, правка текста проходит', async () => {
+      for (const status of [
+        'pending',
+        'review',
+        'completed',
+        'cancelled',
+      ] as const) {
+        const order = await seed({ status, performer });
+        await expect(
+          service.updateOrder(order.id, { draft: true }, customer),
+        ).rejects.toThrow(new BadRequestException(HIDE));
+        await expect(
+          service.updateOrder(order.id, { is_active: false }, customer),
+        ).rejects.toThrow(new BadRequestException(HIDE));
+        await expect(service.archiveOrder(order.id, customer)).rejects.toThrow(
+          new BadRequestException(HIDE),
+        );
+        expect(await orders.findById(order.id).lean()).toMatchObject({
+          status,
+          draft: false,
+          is_active: true,
+        });
+
+        await service.updateOrder(order.id, { title: 'Пекарня' }, customer);
+      }
+    });
+  });
+
   describe('подтверждение почты', () => {
     const PUBLISH =
       'Подтвердите почту, чтобы опубликовать заказ. Черновик можно сохранить и без этого';
@@ -434,12 +579,27 @@ describe('OrderService', () => {
   });
 
   describe('удаление', () => {
-    it('заказ с исполнителем удалить нельзя', async () => {
-      const order = await inStatus('pending');
-      await expect(service.deleteOrder(order.id, customer)).rejects.toThrow(
-        BadRequestException,
-      );
-      expect(await orders.exists({ _id: order.id })).not.toBeNull();
+    it('заказ, у которого был исполнитель, удалить нельзя — и после отмены', async () => {
+      for (const status of [
+        'pending',
+        'review',
+        'completed',
+        'cancelled',
+      ] as const) {
+        const order = await inStatus(status);
+        await expect(service.deleteOrder(order.id, customer)).rejects.toThrow(
+          new BadRequestException(
+            'Заказ, у которого был исполнитель, удалить нельзя: он остаётся в истории второй стороны',
+          ),
+        );
+        expect(await orders.exists({ _id: order.id })).not.toBeNull();
+      }
+    });
+
+    it('отменённый заказ без исполнителя удаляется', async () => {
+      const order = await seed({ status: 'cancelled' });
+      await service.deleteOrder(order.id, customer);
+      expect(await orders.exists({ _id: order.id })).toBeNull();
     });
 
     it('заказ без исполнителя удаляется вместе с откликами', async () => {

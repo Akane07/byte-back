@@ -87,6 +87,10 @@ export class Message {
   @Prop({ default: false })
   is_delivery: boolean;
 
+  /** Одна сторона предлагает отменить заказ в работе, вторая соглашается или отказывается. */
+  @Prop({ default: false })
+  is_cancel: boolean;
+
   @Prop()
   orderId?: string;
 
@@ -96,6 +100,8 @@ export class Message {
   /**
    * server — служебное сообщение, response — отклик на заказ,
    * accepted / rejected — ответ на предложение, отклик или сдачу работы.
+   * У предложения отмены accepted — отмена состоялась (по согласию или
+   * без ответа второй стороны), rejected — не состоялась.
    */
   @Prop({ enum: MESSAGE_STATUSES })
   status?: MessageStatus;

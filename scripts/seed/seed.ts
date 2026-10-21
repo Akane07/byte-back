@@ -263,6 +263,7 @@ async function seed() {
       skills: o.skills,
       draft: state === 'draft',
       is_active: state !== 'archived',
+      status: state === 'cancelled' ? 'cancelled' : 'active',
       response_count: o.responses?.length ?? 0,
       viewed_by: ids(o.viewedBy),
       created_at: created,
@@ -308,8 +309,35 @@ async function seed() {
         await answer({ id: String(msg._id), senderId: id[r.from], receiverId: id[o.owner] }, o.owner, r.outcome, answeredAt);
         if (r.outcome === 'accepted') {
           order.performer = id[r.from];
-          order.status = state === 'completed' ? 'completed' : 'pending';
+          order.status = state === 'completed' || state === 'cancelled' ? state : 'pending';
           await order.save();
+          if (o.cancel) {
+            // Как в чате: карточка предложения отмены и ответ второй стороны.
+            const c = o.cancel;
+            const [from, to] = c.by === 'owner' ? [o.owner, r.from] : [r.from, o.owner];
+            const at = ago(c.hoursAgo * HOUR);
+            const proposal = await message({
+              senderId: id[from],
+              receiverId: id[to],
+              text: c.reason,
+              is_cancel: true,
+              orderId,
+              isRead: c.outcome !== 'pending',
+              createdAt: at,
+            });
+            const card = { id: String(proposal._id), senderId: id[from], receiverId: id[to] };
+            if (c.outcome === 'rejected') await answer(card, to, 'rejected', new Date(at.getTime() + HOUR));
+            if (c.outcome === 'accepted') {
+              await MessageModel.updateOne({ _id: proposal._id }, { status: 'accepted' });
+              await message({
+                senderId: id[from],
+                receiverId: id[to],
+                text: `Заказ «${o.title}» отменён по согласию сторон.`,
+                status: 'server',
+                createdAt: new Date(at.getTime() + HOUR),
+              });
+            }
+          }
           if (state === 'completed') {
             // Как на сайте: исполнитель сдал работу, заказчик её принял.
             const deliveredAt = o.completedDaysAgo

@@ -12,8 +12,10 @@ import {
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { JwtPayload } from '../auth/jwt.strategy';
-import { OrderService } from '../order/order.service';
+import { isListed, OrderService } from '../order/order.service';
+import { OrderDocument } from '../order/schemas/order.schema';
 import { UserService } from '../user/user.service';
+import { CANCEL_REPLY_DAYS, daysText, replyOverdue } from './cancel-proposal';
 import { ChatService } from './chat.service';
 import {
   EditMessageDto,
@@ -22,6 +24,7 @@ import {
   PartnerDto,
   PostResponseDto,
   PresenceQueryDto,
+  ProposeCancelDto,
   SendMessageDto,
 } from './dto/chat-events.dto';
 import { Message, MessageDocument } from './schemas/chat.schema';
@@ -130,12 +133,12 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       throw new WsException('Пустое сообщение');
     }
 
-    // Предложить можно только свой активный заказ без исполнителя.
+    // Предложить можно только свой опубликованный заказ без исполнителя.
     if (dto.is_suggest) {
       if (!dto.orderId)
         throw new WsException('Не указан заказ для предложения');
       const order = await this.orderService.getOrder(dto.orderId, senderId);
-      if (order.user_id !== senderId || order.performer || order.draft) {
+      if (order.user_id !== senderId || !isListed(order)) {
         throw new WsException('Этот заказ нельзя предложить');
       }
     }
@@ -226,7 +229,8 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
    * получатель сообщения:
    * - предложение (is_suggest): заказчик → исполнитель, исполнитель — получатель;
    * - отклик (status = response): исполнитель → заказчик, исполнитель — отправитель;
-   * - сдача работы (is_delivery): исполнитель → заказчик, заказ завершается.
+   * - сдача работы (is_delivery): исполнитель → заказчик, заказ завершается;
+   * - отмена (is_cancel): любая сторона → другой, заказ отменяется.
    */
   @SubscribeMessage('acceptMessage')
   async handleAcceptMessage(
@@ -235,6 +239,19 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   ) {
     const actorId = client.data.userId;
     const message = await this.findPendingOffer(dto.messageId, actorId);
+
+    if (message.is_cancel) {
+      const order = await this.orderService.cancelDeal(message.orderId!, [
+        message.senderId,
+        message.receiverId,
+      ]);
+      await this.completeCancel(
+        message,
+        order,
+        `Заказ «${order.title}» отменён по согласию сторон.`,
+      );
+      return;
+    }
 
     if (message.is_delivery) {
       const order = await this.orderService.reviewWork(
@@ -245,6 +262,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       await this.chatService.setStatus(message, 'accepted');
       this.emitToBoth(message, 'messageAccepted', { messageId: message.id });
       this.emitToBoth(message, 'orderUpdated', order.toJSON());
+      await this.closeOpenCards(order.id, message.id);
       await this.sendServerMessage(
         message,
         `Работа по заказу «${order.title}» принята. Заказ завершён. ` +
@@ -365,6 +383,69 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     return { orderId: order.id, status: order.status };
   }
 
+  /**
+   * Предложить второй стороне отменить заказ в работе или на проверке.
+   * Ей приходит карточка: принять или отклонить — acceptMessage / rejectMessage.
+   */
+  @SubscribeMessage('proposeCancel')
+  async handleProposeCancel(
+    @ConnectedSocket() client: AuthedSocket,
+    @MessageBody() dto: ProposeCancelDto,
+  ) {
+    const senderId = client.data.userId;
+    const order = await this.orderService.getDealToCancel(
+      dto.orderId,
+      senderId,
+    );
+    if (await this.chatService.hasOpenCancel(order.id)) {
+      throw new WsException('Предложение отменить заказ уже отправлено');
+    }
+
+    return this.send({
+      senderId,
+      receiverId: order.user_id === senderId ? order.performer! : order.user_id,
+      text: dto.text?.trim() ?? '',
+      is_cancel: true,
+      orderId: order.id,
+    });
+  }
+
+  /**
+   * Вторая сторона не ответила на предложение отмены CANCEL_REPLY_DAYS дней —
+   * инициатор отменяет заказ сам. Срок проверяется в момент нажатия.
+   */
+  @SubscribeMessage('forceCancel')
+  async handleForceCancel(
+    @ConnectedSocket() client: AuthedSocket,
+    @MessageBody() dto: MessageActionDto,
+  ) {
+    const proposal = await this.chatService.findMessage(dto.messageId);
+    if (!proposal.is_cancel || proposal.senderId !== client.data.userId) {
+      throw new WsException(
+        'Отменить заказ без согласия может только автор предложения отмены',
+      );
+    }
+    if (proposal.status === 'accepted' || proposal.status === 'rejected') {
+      throw new WsException('На это предложение уже ответили');
+    }
+    if (!replyOverdue(proposal.createdAt, new Date())) {
+      throw new WsException(
+        `Отменить без согласия можно, если на предложение нет ответа ${daysText(CANCEL_REPLY_DAYS)}`,
+      );
+    }
+
+    const order = await this.orderService.cancelDeal(proposal.orderId!, [
+      proposal.senderId,
+      proposal.receiverId,
+    ]);
+    await this.completeCancel(
+      proposal,
+      order,
+      `Заказ «${order.title}» отменён без согласия второй стороны. ` +
+        `Причина: вторая сторона не ответила ${daysText(CANCEL_REPLY_DAYS)}.`,
+    );
+  }
+
   /** Служебное сообщение в диалоге двух пользователей — для других модулей. */
   async notify(senderId: string, receiverId: string, text: string) {
     await this.sendServerMessage({ senderId, receiverId }, text);
@@ -407,7 +488,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     client.data.sent = recent;
   }
 
-  /** Предложение, отклик или сдача работы — адресованные пользователю и ещё без ответа. */
+  /** Предложение, отклик, сдача работы или отмена — адресованные пользователю и ещё без ответа. */
   private async findPendingOffer(
     messageId: string,
     userId: string,
@@ -416,6 +497,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const isOffer =
       message.is_suggest ||
       message.is_delivery ||
+      message.is_cancel ||
       message.status === 'response';
 
     if (!isOffer || !message.orderId) {
@@ -443,6 +525,30 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         offer,
         `По заказу «${title}» выбран другой исполнитель.`,
       );
+    }
+  }
+
+  /** Отмена состоялась: обеим сторонам — новый статус и служебное сообщение. */
+  private async completeCancel(
+    proposal: MessageDocument,
+    order: OrderDocument,
+    text: string,
+  ) {
+    await this.chatService.setStatus(proposal, 'accepted');
+    this.emitToBoth(proposal, 'messageAccepted', { messageId: proposal.id });
+    this.emitToBoth(proposal, 'orderUpdated', order.toJSON());
+    await this.closeOpenCards(order.id, proposal.id);
+    await this.sendServerMessage(proposal, text);
+  }
+
+  /**
+   * Заказ выполнен или отменён — открытые карточки по нему (сдача работы,
+   * предложение отмены) закрываются, чтобы не висели ненужные кнопки.
+   */
+  private async closeOpenCards(orderId: string, exceptId: string) {
+    const closed = await this.chatService.closeOtherOffers(orderId, exceptId);
+    for (const card of closed) {
+      this.emitToBoth(card, 'messageRejected', { messageId: card.id });
     }
   }
 

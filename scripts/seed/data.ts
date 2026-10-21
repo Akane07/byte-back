@@ -601,8 +601,16 @@ export interface SeedOrder {
   completedDaysAgo?: number;
   /** Отзывы сторон по завершённому заказу. */
   reviews?: { byCustomer?: SeedReview; byPerformer?: SeedReview };
-  /** active — в ленте; completed — исполнитель завершил (нужен принятый отклик). */
-  state?: 'active' | 'draft' | 'archived' | 'completed';
+  /**
+   * active — в ленте; completed — исполнитель завершил (нужен принятый отклик);
+   * cancelled — отменён: без исполнителя — автором, с исполнителем — по cancel.
+   */
+  state?: 'active' | 'draft' | 'archived' | 'completed' | 'cancelled';
+  /**
+   * Предложение отменить заказ с исполнителем: кто предложил, сколько часов
+   * назад и ответ второй стороны (accepted — заказ отменён).
+   */
+  cancel?: { by: 'owner' | 'performer'; hoursAgo: number; outcome: Outcome; reason: string };
   responses?: SeedResponse[];
   viewedBy?: string[];
   /**
@@ -927,6 +935,8 @@ export const ORDERS: SeedOrder[] = [
     skills: ['Копирайтинг'],
     daysAgo: 9,
     responses: [{ from: 'olga', text: 'Возьму, пришлю структуру завтра.', outcome: 'accepted' }],
+    // Свежее предложение отмены: у olga в чате «Принять» и «Отклонить».
+    cancel: { by: 'owner', hoursAgo: 5, outcome: 'pending', reason: 'Фирма решила отложить обновление сайта до весны.' },
   },
   {
     owner: 'artem',
@@ -940,6 +950,33 @@ export const ORDERS: SeedOrder[] = [
     skills: ['Docker', 'Linux', 'Devops'],
     daysAgo: 7,
     responses: [{ from: 'dmitry', text: 'Сделаю за 3 дня.', outcome: 'accepted' }],
+    // Без ответа больше 3 дней: dmitry может отменить заказ без согласия.
+    cancel: {
+      by: 'performer',
+      hoursAgo: 80,
+      outcome: 'pending',
+      reason: 'Неделю нет доступа к серверу, без него не могу продолжить.',
+    },
+  },
+  {
+    owner: 'marina',
+    title: 'Стикерпак для соцсетей кофейни',
+    description: '12 стикеров с маскотом — кофейным зерном.',
+    category: 1,
+    price_type: 'fixed',
+    price: 9000,
+    type: 'one-time',
+    deadlines: 'more-week',
+    skills: ['Иллюстрация'],
+    daysAgo: 12,
+    state: 'cancelled',
+    responses: [{ from: 'vika', text: 'Нарисую в стиле меню, которое делала для вас.', outcome: 'accepted' }],
+    cancel: {
+      by: 'performer',
+      hoursAgo: 150,
+      outcome: 'accepted',
+      reason: 'Не успеваю к вашему сроку из-за другого проекта — лучше отменить, чтобы вы нашли другого иллюстратора.',
+    },
   },
   {
     owner: 'marina',
@@ -1204,6 +1241,21 @@ export const ORDERS: SeedOrder[] = [
     skills: ['Баннеры'],
     daysAgo: 60,
     state: 'archived',
+  },
+  {
+    // Отменён автором до выбора исполнителя; отклик в чате принять уже нельзя.
+    owner: 'artem',
+    title: 'Телеграм-бот для записи клиентов (отменён)',
+    description: 'Запись к мастерам и напоминания за день. Нашли готовый сервис.',
+    category: 2,
+    price_type: 'fixed',
+    price: 15000,
+    type: 'one-time',
+    deadlines: 'less-week',
+    skills: ['Node.js'],
+    daysAgo: 6,
+    state: 'cancelled',
+    responses: [{ from: 'dmitry', text: 'Сделаю на Node.js за 4 дня.', outcome: 'pending' }],
   },
 ];
 

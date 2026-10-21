@@ -95,6 +95,10 @@ export class ChatService {
               branches: [
                 { case: { $eq: ['$is_delivery', true] }, then: 'Работа сдана' },
                 {
+                  case: { $eq: ['$is_cancel', true] },
+                  then: 'Предложение отменить заказ',
+                },
+                {
                   case: { $eq: ['$is_suggest', true] },
                   then: 'Предложение заказа',
                 },
@@ -246,8 +250,8 @@ export class ChatService {
   }
 
   /**
-   * Удалить можно своё обычное сообщение, ещё не принятое предложение
-   * (отозвать) или отклик без ответа. Служебные сообщения и предложения, на которые уже ответили,
+   * Удалить можно своё обычное сообщение, ещё не принятое предложение заказа
+   * или отмены (отозвать) или отклик без ответа. Служебные сообщения и предложения, на которые уже ответили,
    * — история сделки: раньше их можно было стереть, и пропадало, кто и
    * когда принял заказ.
    */
@@ -291,16 +295,32 @@ export class ChatService {
     return message;
   }
 
+  /** Есть ли по заказу предложение отмены без ответа. */
+  async hasOpenCancel(orderId: string) {
+    return !!(await this.messageModel.exists({
+      orderId,
+      is_cancel: true,
+      status: { $nin: ['accepted', 'rejected'] },
+    }));
+  }
+
   /**
    * Когда у заказа появился исполнитель, остальные предложения и отклики
    * по нему больше не актуальны — отклоняем их, чтобы в чатах с другими
    * исполнителями не висели кнопки «Принять», которые всё равно вернут ошибку.
+   * Так же закрываются сдача работы и предложение отмены, когда заказ
+   * выполнен или отменён.
    */
   async closeOtherOffers(orderId: string, exceptId: string) {
     const offers = await this.messageModel.find({
       orderId,
       _id: { $ne: exceptId },
-      $or: [{ is_suggest: true }, { status: 'response' }],
+      $or: [
+        { is_suggest: true },
+        { status: 'response' },
+        { is_delivery: true },
+        { is_cancel: true },
+      ],
       status: { $nin: ['accepted', 'rejected'] },
     });
     await this.messageModel.updateMany(
@@ -316,6 +336,7 @@ function isPlain(message: Message) {
   return (
     !message.is_suggest &&
     !message.is_delivery &&
+    !message.is_cancel &&
     !message.responseId &&
     !message.status
   );
@@ -326,5 +347,8 @@ function isDeletable(message: Message) {
   const answered =
     message.status === 'accepted' || message.status === 'rejected';
   // Отклик в статусе response — ещё без ответа заказчика.
-  return (message.is_suggest && !answered) || message.status === 'response';
+  return (
+    ((message.is_suggest || message.is_cancel) && !answered) ||
+    message.status === 'response'
+  );
 }

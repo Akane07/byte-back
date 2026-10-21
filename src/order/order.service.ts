@@ -21,11 +21,14 @@ import {
   OrderDocument,
   OrderResponse,
   OrderResponseDocument,
+  OrderStatus,
 } from './schemas/order.schema';
 
 const PAGE_SIZE = 10;
 const PUBLISH_REASON =
   'опубликовать заказ. Черновик можно сохранить и без этого';
+/** Сделка идёт: исполнитель работает или работа на проверке. */
+const DEAL_STATUSES: OrderStatus[] = ['pending', 'review'];
 
 @Injectable()
 export class OrderService {
@@ -145,6 +148,9 @@ export class OrderService {
     // каждом редактировании — иначе любая правка поднимала заказ в ленте.
     const publishing = order.draft && dto.draft === false;
     const wasListed = isListed(order);
+    if (dto.draft || dto.is_active === false) {
+      assertCanHide(order);
+    }
     order.set(dto);
     normalizeLocation(order);
     // Правка заказа, который уже в ленте, публикацией не считается.
@@ -162,17 +168,84 @@ export class OrderService {
 
   async archiveOrder(id: string, userId: string) {
     const order = await this.findOwnOrder(id, userId);
+    assertCanHide(order);
     order.is_active = false;
     await order.save();
     return order;
   }
 
+  /**
+   * Заказ без исполнителя автор отменяет сам. Одна условная запись: статус
+   * проверяется в самой операции, причину отказа ищем только после неё.
+   */
+  async cancelOrder(id: string, userId: string) {
+    const order = await this.orderModel.findOneAndUpdate(
+      { _id: id, user_id: userId, status: 'active', draft: { $ne: true } },
+      { status: 'cancelled' },
+      { returnDocument: 'after' },
+    );
+    if (order) return order;
+
+    const current = await this.findOwnOrder(id, userId);
+    throw new BadRequestException(
+      current.draft
+        ? 'Черновик не отменяют — его можно удалить'
+        : current.status === 'cancelled'
+          ? 'Заказ уже отменён'
+          : current.status === 'completed'
+            ? 'Выполненный заказ отменить нельзя'
+            : 'У заказа есть исполнитель — отмену нужно предложить ему в чате',
+    );
+  }
+
+  /** Заказ, отмену которого участник может предложить второй стороне. */
+  async getDealToCancel(orderId: string, userId: string) {
+    const order = await this.findOrder(orderId);
+    if (order.user_id !== userId && order.performer !== userId) {
+      throw new ForbiddenException('Отменить заказ могут только его участники');
+    }
+    if (!DEAL_STATUSES.includes(order.status)) {
+      throw new BadRequestException(
+        'Предложить отмену можно только для заказа в работе или на проверке',
+      );
+    }
+    return order;
+  }
+
+  /**
+   * Отмена сделки: заказ в работе или на проверке → cancelled. Без чтения
+   * перед записью — одна условная операция. Если параллельно приняли работу,
+   * условие уже не выполнится, и у заказа останется один конечный статус.
+   */
+  async cancelDeal(orderId: string, participants: [string, string]) {
+    const [a, b] = participants;
+    const order = await this.orderModel.findOneAndUpdate(
+      {
+        _id: orderId,
+        status: { $in: DEAL_STATUSES },
+        $or: [
+          { user_id: a, performer: b },
+          { user_id: b, performer: a },
+        ],
+      },
+      { status: 'cancelled' },
+      { returnDocument: 'after' },
+    );
+    if (!order) {
+      throw new BadRequestException(
+        'Заказ уже не в работе — отменить его нельзя',
+      );
+    }
+    return order;
+  }
+
   async deleteOrder(id: string, userId: string) {
     const order = await this.findOwnOrder(id, userId);
-    // Заказ с исполнителем — уже сделка: на него ссылаются чат и отзывы.
+    // Исполнитель остаётся в заказе и после отмены: на заказ ссылаются чат
+    // и отзывы, он есть в истории второй стороны.
     if (order.performer) {
       throw new BadRequestException(
-        'Заказ с исполнителем нельзя удалить — его можно отправить в архив',
+        'Заказ, у которого был исполнитель, удалить нельзя: он остаётся в истории второй стороны',
       );
     }
     await Promise.all([
@@ -193,7 +266,7 @@ export class OrderService {
     if (order.user_id === userId) {
       throw new BadRequestException('Нельзя откликнуться на свой заказ');
     }
-    if (order.draft || !order.is_active || order.performer) {
+    if (!isListed(order)) {
       throw new BadRequestException('Заказ не принимает отклики');
     }
 
@@ -390,6 +463,10 @@ export class OrderService {
     if (order.user_id !== customerId || !participants.includes(performerId)) {
       throw new ForbiddenException('Заказ не принадлежит участникам диалога');
     }
+    // Старые отклики и предложения по отменённому заказу остаются в чатах.
+    if (order.status === 'cancelled') {
+      throw new BadRequestException('Заказ отменён');
+    }
     // Статус у черновика и заказа в архиве — active, его проверки мало.
     if (order.draft || !order.is_active) {
       throw new BadRequestException('Заказ снят с публикации');
@@ -527,6 +604,18 @@ export class OrderService {
  */
 export function isListed(order: Pick<Order, 'status' | 'draft' | 'is_active'>) {
   return order.status === 'active' && !order.draft && order.is_active !== false;
+}
+
+/**
+ * В черновик и в архив уходит только заказ, который ищет исполнителя.
+ * Заказ с исполнителем закрывается отменой, отменённый — уже закрыт.
+ */
+function assertCanHide(order: Pick<Order, 'status'>) {
+  if (order.status !== 'active') {
+    throw new BadRequestException(
+      'Вернуть в черновик или отправить в архив можно только заказ, который ищет исполнителя',
+    );
+  }
 }
 
 /**
