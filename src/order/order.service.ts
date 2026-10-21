@@ -29,6 +29,14 @@ const PUBLISH_REASON =
   'опубликовать заказ. Черновик можно сохранить и без этого';
 /** Сделка идёт: исполнитель работает или работа на проверке. */
 const DEAL_STATUSES: OrderStatus[] = ['pending', 'review'];
+/**
+ * Условие записи «заказ ищет исполнителя». Переходы статуса и флагов
+ * публикации пишутся только с условием на прежнее состояние: проверка
+ * и запись — одна операция, и между ними не вклинится другое действие.
+ */
+const SEEKING = { status: 'active', performer: { $exists: false } } as const;
+const HIDE_REFUSAL =
+  'Вернуть в черновик или отправить в архив можно только заказ, который ищет исполнителя';
 
 @Injectable()
 export class OrderService {
@@ -148,9 +156,6 @@ export class OrderService {
     // каждом редактировании — иначе любая правка поднимала заказ в ленте.
     const publishing = order.draft && dto.draft === false;
     const wasListed = isListed(order);
-    if (dto.draft || dto.is_active === false) {
-      assertCanHide(order);
-    }
     order.set(dto);
     normalizeLocation(order);
     // Правка заказа, который уже в ленте, публикацией не считается.
@@ -160,18 +165,26 @@ export class OrderService {
     if (publishing) {
       order.created_at = new Date();
     }
-    await order.save();
+    const publication =
+      order.isModified('draft') || order.isModified('is_active');
+    const saved = publication
+      ? await this.saveIfSeeking(order)
+      : await order.save();
 
     await this.syncOrdersCount(userId);
-    return order;
+    return saved;
   }
 
   async archiveOrder(id: string, userId: string) {
-    const order = await this.findOwnOrder(id, userId);
-    assertCanHide(order);
-    order.is_active = false;
-    await order.save();
-    return order;
+    const order = await this.orderModel.findOneAndUpdate(
+      { _id: id, user_id: userId, ...SEEKING },
+      { is_active: false },
+      { returnDocument: 'after' },
+    );
+    if (order) return order;
+
+    await this.findOwnOrder(id, userId);
+    throw new BadRequestException(HIDE_REFUSAL);
   }
 
   /**
@@ -463,40 +476,51 @@ export class OrderService {
     if (order.user_id !== customerId || !participants.includes(performerId)) {
       throw new ForbiddenException('Заказ не принадлежит участникам диалога');
     }
-    // Старые отклики и предложения по отменённому заказу остаются в чатах.
-    if (order.status === 'cancelled') {
-      throw new BadRequestException('Заказ отменён');
-    }
-    // Статус у черновика и заказа в архиве — active, его проверки мало.
-    if (order.draft || !order.is_active) {
-      throw new BadRequestException('Заказ снят с публикации');
-    }
-    if (order.performer || order.status !== 'active') {
-      throw new BadRequestException('У заказа уже есть исполнитель');
+    const refusal = assignRefusal(order);
+    if (refusal) {
+      throw new BadRequestException(refusal);
     }
     await this.assertDealVerified(customerId, performerId, actorId);
 
-    order.performer = performerId;
-    order.status = 'pending';
-    await order.save();
-    return order;
+    // Пока проверяли почту, заказ могли отменить, снять с публикации
+    // или отдать другому исполнителю — запись только с условием.
+    const assigned = await this.orderModel.findOneAndUpdate(
+      {
+        _id: orderId,
+        ...SEEKING,
+        draft: { $ne: true },
+        is_active: { $ne: false },
+      },
+      { performer: performerId, status: 'pending' },
+      { returnDocument: 'after' },
+    );
+    if (!assigned) {
+      throw new BadRequestException(
+        assignRefusal(await this.findOrder(orderId)) ??
+          'Заказ изменился, попробуйте ещё раз',
+      );
+    }
+    return assigned;
   }
 
   /** Исполнитель сдаёт работу: заказ уходит на проверку заказчику. */
   async submitWork(orderId: string, performerId: string) {
-    const order = await this.findOrder(orderId);
-    if (order.performer !== performerId) {
+    const order = await this.orderModel.findOneAndUpdate(
+      { _id: orderId, performer: performerId, status: 'pending' },
+      { status: 'review' },
+      { returnDocument: 'after' },
+    );
+    if (order) return order;
+
+    const current = await this.findOrder(orderId);
+    if (current.performer !== performerId) {
       throw new ForbiddenException('Сдать работу может только исполнитель');
     }
-    if (order.status === 'review') {
-      throw new BadRequestException('Работа уже на проверке у заказчика');
-    }
-    if (order.status !== 'pending') {
-      throw new BadRequestException('Заказ не в работе');
-    }
-    order.status = 'review';
-    await order.save();
-    return order;
+    throw new BadRequestException(
+      current.status === 'review'
+        ? 'Работа уже на проверке у заказчика'
+        : 'Заказ не в работе',
+    );
   }
 
   /**
@@ -504,17 +528,20 @@ export class OrderService {
    * или вернуть на доработку (снова в работе).
    */
   async reviewWork(orderId: string, customerId: string, accepted: boolean) {
-    const order = await this.findOrder(orderId);
-    if (order.user_id !== customerId) {
+    const order = await this.orderModel.findOneAndUpdate(
+      { _id: orderId, user_id: customerId, status: 'review' },
+      accepted
+        ? { status: 'completed', completed_at: new Date() }
+        : { status: 'pending' },
+      { returnDocument: 'after' },
+    );
+    if (order) return order;
+
+    const current = await this.findOrder(orderId);
+    if (current.user_id !== customerId) {
       throw new ForbiddenException('Принять работу может только заказчик');
     }
-    if (order.status !== 'review') {
-      throw new BadRequestException('Работа по заказу не на проверке');
-    }
-    order.status = accepted ? 'completed' : 'pending';
-    if (accepted) order.completed_at = new Date();
-    await order.save();
-    return order;
+    throw new BadRequestException('Работа по заказу не на проверке');
   }
 
   /** Незавершённые заказы, связывающие двух пользователей. */
@@ -564,6 +591,24 @@ export class OrderService {
     }
   }
 
+  /**
+   * Правка, которая меняет черновик или архив, сохраняется, только если заказ
+   * всё ещё ищет исполнителя. Иначе исполнитель, назначенный между чтением
+   * и записью, остался бы у заказа в черновике или в архиве.
+   */
+  private async saveIfSeeking(order: OrderDocument) {
+    await order.validate();
+    const saved = await this.orderModel.findOneAndUpdate(
+      { _id: order._id, ...SEEKING },
+      order.getChanges(),
+      { returnDocument: 'after' },
+    );
+    if (!saved) {
+      throw new BadRequestException(HIDE_REFUSAL);
+    }
+    return saved;
+  }
+
   private async findOrder(id: string): Promise<OrderDocument> {
     const order = await this.orderModel.findById(id);
     if (!order) {
@@ -606,16 +651,18 @@ export function isListed(order: Pick<Order, 'status' | 'draft' | 'is_active'>) {
   return order.status === 'active' && !order.draft && order.is_active !== false;
 }
 
-/**
- * В черновик и в архив уходит только заказ, который ищет исполнителя.
- * Заказ с исполнителем закрывается отменой, отменённый — уже закрыт.
- */
-function assertCanHide(order: Pick<Order, 'status'>) {
-  if (order.status !== 'active') {
-    throw new BadRequestException(
-      'Вернуть в черновик или отправить в архив можно только заказ, который ищет исполнителя',
-    );
+/** Почему заказу нельзя назначить исполнителя; null — можно. */
+export function assignRefusal(
+  order: Pick<Order, 'status' | 'draft' | 'is_active' | 'performer'>,
+) {
+  // Старые отклики и предложения по отменённому заказу остаются в чатах.
+  if (order.status === 'cancelled') return 'Заказ отменён';
+  // Статус у черновика и заказа в архиве — active, его проверки мало.
+  if (order.draft || !order.is_active) return 'Заказ снят с публикации';
+  if (order.performer || order.status !== 'active') {
+    return 'У заказа уже есть исполнитель';
   }
+  return null;
 }
 
 /**
