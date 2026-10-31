@@ -106,6 +106,17 @@ export class FinishOrderDto {
   text?: string;
 }
 
+export class ProposeCancelDto {
+  @IsMongoId()
+  orderId: string;
+
+  /** Причина отмены — необязательно. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(MAX_MESSAGE_LENGTH)
+  text?: string;
+}
+
 /** Собеседник, с которым связано событие: прочитать, «печатает…». */
 export class PartnerDto {
   @IsMongoId()

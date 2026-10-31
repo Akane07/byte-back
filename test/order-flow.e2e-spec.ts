@@ -1,11 +1,14 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
-import { getConnectionToken } from '@nestjs/mongoose';
+import { getConnectionToken, getModelToken } from '@nestjs/mongoose';
 import { Test, TestingModule } from '@nestjs/testing';
 import { ThrottlerGuard } from '@nestjs/throttler';
+import { Model, Types } from 'mongoose';
 import { AddressInfo } from 'net';
 import { Socket } from 'socket.io-client';
 import * as request from 'supertest';
 import { AppModule } from '../src/app/app.module';
+import { CANCEL_REPLY_DAYS, daysText } from '../src/chat/cancel-proposal';
+import { Message } from '../src/chat/schemas/chat.schema';
 import { CorsIoAdapter } from '../src/common/socket-io.adapter';
 import { MailService } from '../src/mail/mail.service';
 import { DB_START_TIMEOUT, startTestDb, TestDb } from './mongo';
@@ -237,6 +240,46 @@ describe('e2e: заказ от регистрации до рейтинга', ()
   const profile = async (member: Member) =>
     (await api().get(`/api/v1/user/${member.id}`).expect(200)).body as Json;
 
+  /** Заказ в работе: отклик исполнителя принят в чате. */
+  const startDeal = async () => {
+    const customer = await signUp('customer');
+    const performer = await signUp('performer');
+    const orderId = await createOrder(customer);
+    const responseId = await respond(performer, orderId);
+    const [c, p] = await Promise.all([connect(customer), connect(performer)]);
+    await accept(c, p, await postResponse(p, c, orderId, responseId), orderId);
+    return { customer, performer, orderId, c, p };
+  };
+
+  /** Предложение отмены; возвращает id карточки, которая пришла второй стороне. */
+  const proposeCancel = async (
+    from: Socket,
+    to: Socket,
+    orderId: string,
+    text?: string,
+  ) => {
+    const card = waitFor<Json>(
+      to,
+      'receiveMessage',
+      (m) => m.is_cancel && m.orderId === orderId,
+    );
+    const message = await from
+      .timeout(EVENT_TIMEOUT)
+      .emitWithAck('proposeCancel', { orderId, text });
+    expect(await card).toMatchObject({
+      id: message.id,
+      text: text ?? '',
+    });
+    return message.id as string;
+  };
+
+  const serverMessage = (socket: Socket, text: string) =>
+    waitFor<Json>(
+      socket,
+      'receiveMessage',
+      (m) => m.status === 'server' && m.text === text,
+    );
+
   it('регистрация → заказ → отклик → назначение → сдача → приёмка → отзывы → рейтинг', async () => {
     const customer = await signUp('customer');
     const performer = await signUp('performer');
@@ -419,5 +462,320 @@ describe('e2e: заказ от регистрации до рейтинга', ()
     expect((await messageOf(customer, performer.id, card))?.status).toBe(
       'response',
     );
+  });
+
+  it('отмена без исполнителя: автор отменяет сам, старый отклик принять нельзя, заказ можно удалить', async () => {
+    const customer = await signUp('customer');
+    const performer = await signUp('performer');
+    const orderId = await createOrder(customer);
+    const responseId = await respond(performer, orderId);
+    const [c, p] = await Promise.all([connect(customer), connect(performer)]);
+    const card = await postResponse(p, c, orderId, responseId);
+
+    const { body } = await api()
+      .patch(`/api/v1/order/${orderId}/cancel`)
+      .set(bearer(customer))
+      .expect(200);
+    expect(body.status).toBe('cancelled');
+    await api()
+      .patch(`/api/v1/order/${orderId}/cancel`)
+      .set(bearer(performer))
+      .expect(404);
+
+    expect(
+      await refusal(c, 'acceptMessage', { messageId: card }),
+    ).toMatchObject({ message: 'Заказ отменён' });
+    expect((await orderOf(orderId, customer)).performer).toBeUndefined();
+
+    await api()
+      .delete(`/api/v1/order/${orderId}`)
+      .set(bearer(customer))
+      .expect(200);
+  });
+
+  it('отмена по согласию: исполнитель предлагает, заказчик принимает — cancelled, карточка сдачи закрыта, отзыв и удаление нельзя', async () => {
+    const { customer, performer, orderId, c, p } = await startDeal();
+    const delivery = await deliver(c, p, orderId);
+
+    const proposal = await proposeCancel(p, c, orderId, 'Заболел, не успею');
+    expect(await refusal(c, 'proposeCancel', { orderId })).toMatchObject({
+      message: 'Предложение отменить заказ уже отправлено',
+    });
+    // Принять может только получатель — тот, кому предложили.
+    expect(
+      await refusal(p, 'acceptMessage', { messageId: proposal }),
+    ).toMatchObject({ message: 'Ответить может только получатель' });
+
+    const deliveryClosed = waitFor<Json>(
+      p,
+      'messageRejected',
+      (e) => e.messageId === delivery,
+    );
+    const notices = [c, p].map((s) =>
+      serverMessage(
+        s,
+        'Заказ «Лендинг для кофейни» отменён по согласию сторон.',
+      ),
+    );
+    for (const order of await accept(c, p, proposal, orderId)) {
+      expect(order).toMatchObject({
+        status: 'cancelled',
+        performer: performer.id,
+      });
+    }
+    await Promise.all([deliveryClosed, ...notices]);
+    expect((await messageOf(customer, performer.id, proposal))?.status).toBe(
+      'accepted',
+    );
+    expect((await messageOf(customer, performer.id, delivery))?.status).toBe(
+      'rejected',
+    );
+
+    await api()
+      .post('/api/v1/reviews')
+      .set(bearer(customer))
+      .send({ orderId, rating: 5 })
+      .expect(400);
+    await api()
+      .delete(`/api/v1/order/${orderId}`)
+      .set(bearer(customer))
+      .expect(400);
+    await api()
+      .patch(`/api/v1/order/${orderId}`)
+      .set(bearer(customer))
+      .send({ draft: true })
+      .expect(400);
+    expect((await orderOf(orderId, customer)).status).toBe('cancelled');
+  });
+
+  it(`отказ от отмены оставляет заказ в работе; без ответа ${daysText(CANCEL_REPLY_DAYS)} инициатор отменяет сам`, async () => {
+    const { customer, performer, orderId, c, p } = await startDeal();
+    const messages = moduleRef.get<Model<Message>>(getModelToken(Message.name));
+
+    const first = await proposeCancel(c, p, orderId);
+    const rejected = serverMessage(c, 'Предложение было отклонено performer.');
+    p.emit('rejectMessage', { messageId: first });
+    await rejected;
+    expect((await orderOf(orderId, customer)).status).toBe('pending');
+
+    const second = await proposeCancel(c, p, orderId);
+    expect(
+      await refusal(c, 'forceCancel', { messageId: second }),
+    ).toMatchObject({
+      message: `Отменить без согласия можно, если на предложение нет ответа ${daysText(CANCEL_REPLY_DAYS)}`,
+    });
+    expect(
+      await refusal(p, 'forceCancel', { messageId: second }),
+    ).toMatchObject({
+      message:
+        'Отменить заказ без согласия может только автор предложения отмены',
+    });
+    expect((await orderOf(orderId, customer)).status).toBe('pending');
+
+    // Предложение старше срока ответа. createdAt у Mongoose неизменяемое —
+    // меняем напрямую в коллекции.
+    await messages.collection.updateOne(
+      { _id: new Types.ObjectId(second) },
+      {
+        $set: {
+          createdAt: new Date(
+            Date.now() - CANCEL_REPLY_DAYS * 86_400_000 - 1000,
+          ),
+        },
+      },
+    );
+    const updates = [c, p].map((s) =>
+      waitFor<Json>(s, 'orderUpdated', (o) => o.id === orderId),
+    );
+    const notice = serverMessage(
+      p,
+      'Заказ «Лендинг для кофейни» отменён без согласия второй стороны. ' +
+        `Причина: вторая сторона не ответила ${daysText(CANCEL_REPLY_DAYS)}.`,
+    );
+    c.emit('forceCancel', { messageId: second });
+    for (const order of await Promise.all(updates)) {
+      expect(order.status).toBe('cancelled');
+    }
+    await notice;
+    expect((await messageOf(performer, customer.id, second))?.status).toBe(
+      'accepted',
+    );
+  });
+
+  describe('одновременные действия: проходит одно, побочные эффекты только у победителя', () => {
+    /** Все события, которые сокет получил с этого момента. */
+    const record = (socket: Socket) => {
+      const events: { event: string; payload: Json }[] = [];
+      socket.onAny((event: string, payload: Json) =>
+        events.push({ event, payload }),
+      );
+      const of = (event: string) =>
+        events.filter((e) => e.event === event).map((e) => e.payload);
+      return {
+        count: (event: string) => of(event).length,
+        cards: (event: string) => of(event).map((p) => p.messageId as string),
+        serverTexts: () =>
+          of('receiveMessage')
+            .filter((m) => m.status === 'server')
+            .map((m) => m.text as string),
+      };
+    };
+
+    /** Действие через сокет: true — прошло (пришло okEvent), false — отказ. */
+    const attempt = (
+      socket: Socket,
+      event: string,
+      payload: Json,
+      okEvent: string,
+    ) =>
+      new Promise<boolean>((resolve) => {
+        const finish = (ok: boolean) => {
+          socket.off(okEvent, onOk);
+          socket.off('exception', onRefused);
+          resolve(ok);
+        };
+        const onOk = () => finish(true);
+        const onRefused = () => finish(false);
+        socket.on(okEvent, onOk);
+        socket.on('exception', onRefused);
+        socket.emit(event, payload);
+      });
+
+    /** Дать дойти событиям проигравшего, если они всё-таки есть. */
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 300));
+
+    it('«принять работу» и «принять отмену»', async () => {
+      const { customer, performer, orderId, c, p } = await startDeal();
+      const delivery = await deliver(c, p, orderId);
+      const proposal = await proposeCancel(p, c, orderId);
+      const log = record(p);
+      const customerLog = record(c);
+
+      // Оба нажатия с одного сокета: кто победил, видно по статусу заказа.
+      c.emit('acceptMessage', { messageId: delivery });
+      c.emit('acceptMessage', { messageId: proposal });
+      await waitFor(p, 'orderUpdated', (o) => o.id === orderId);
+      await settle();
+
+      const { status } = await orderOf(orderId, customer);
+      expect(['completed', 'cancelled']).toContain(status);
+      const work = status === 'completed';
+      const [won, lost] = work ? [delivery, proposal] : [proposal, delivery];
+      expect(customerLog.count('exception')).toBe(1);
+      expect(log.count('orderUpdated')).toBe(1);
+      expect(log.cards('messageAccepted')).toEqual([won]);
+      // Карточку проигравшего закрывает победитель — других закрытий нет.
+      expect(log.cards('messageRejected')).toEqual([lost]);
+      expect(log.serverTexts()).toEqual([
+        work
+          ? expect.stringMatching(
+              /^Работа по заказу «Лендинг для кофейни» принята\./,
+            )
+          : 'Заказ «Лендинг для кофейни» отменён по согласию сторон.',
+      ]);
+      expect((await messageOf(customer, performer.id, won))?.status).toBe(
+        'accepted',
+      );
+      expect((await messageOf(customer, performer.id, lost))?.status).toBe(
+        'rejected',
+      );
+    });
+
+    it('«в архив», «в черновик» или «отменить» и «принять отклик»', async () => {
+      const customer = await signUp('customer');
+      const performer = await signUp('performer');
+      const [c, p] = await Promise.all([connect(customer), connect(performer)]);
+      const actions: [string, Json][] = [
+        ['archive', {}],
+        ['', { draft: true }],
+        ['cancel', {}],
+      ];
+
+      for (const [path, body] of actions) {
+        const orderId = await createOrder(customer);
+        const responseId = await respond(performer, orderId);
+        const card = await postResponse(p, c, orderId, responseId);
+        const log = record(p);
+
+        const [rest, accepted] = await Promise.all([
+          api()
+            .patch(`/api/v1/order/${orderId}${path && `/${path}`}`)
+            .set(bearer(customer))
+            .send(body),
+          attempt(c, 'acceptMessage', { messageId: card }, 'orderUpdated'),
+        ]);
+        expect([rest.status === 200, accepted].filter(Boolean)).toHaveLength(1);
+        await settle();
+
+        const order = await orderOf(orderId, customer);
+        const cardStatus = (await messageOf(customer, performer.id, card))
+          ?.status;
+        if (accepted) {
+          expect(rest.status).toBe(400);
+          expect(order).toMatchObject({
+            status: 'pending',
+            performer: performer.id,
+            draft: false,
+            is_active: true,
+          });
+          expect(cardStatus).toBe('accepted');
+          expect(log.serverTexts()).toEqual([
+            'Предложение было принято customer.',
+          ]);
+        } else {
+          expect(order.performer).toBeUndefined();
+          expect(cardStatus).toBe('response');
+          expect(log.count('orderUpdated')).toBe(0);
+          expect(log.count('messageAccepted')).toBe(0);
+          expect(log.count('messageRejected')).toBe(0);
+          expect(log.serverTexts()).toEqual([]);
+        }
+      }
+    });
+
+    it('два исполнителя принимают предложения одного заказа', async () => {
+      const customer = await signUp('customer');
+      const alpha = await signUp('alpha');
+      const beta = await signUp('beta');
+      const orderId = await createOrder(customer);
+      const [c, a, b] = await Promise.all([customer, alpha, beta].map(connect));
+      const suggest = async (to: Member) =>
+        (
+          await c.timeout(EVENT_TIMEOUT).emitWithAck('sendMessage', {
+            receiverId: to.id,
+            is_suggest: true,
+            orderId,
+          })
+        ).id as string;
+      const toAlpha = await suggest(alpha);
+      const toBeta = await suggest(beta);
+      const log = record(c);
+
+      const [alphaOk, betaOk] = await Promise.all([
+        attempt(a, 'acceptMessage', { messageId: toAlpha }, 'orderUpdated'),
+        attempt(b, 'acceptMessage', { messageId: toBeta }, 'orderUpdated'),
+      ]);
+      expect([alphaOk, betaOk].filter(Boolean)).toHaveLength(1);
+      await settle();
+
+      const [winner, won, loser, lost] = alphaOk
+        ? [alpha, toAlpha, beta, toBeta]
+        : [beta, toBeta, alpha, toAlpha];
+      const name = winner === alpha ? 'alpha' : 'beta';
+      expect((await orderOf(orderId, customer)).performer).toBe(winner.id);
+      expect(log.count('orderUpdated')).toBe(1);
+      expect(log.cards('messageAccepted')).toEqual([won]);
+      expect(log.cards('messageRejected')).toEqual([lost]);
+      // «Принято» — только от победителя; проигравшему — что выбран другой.
+      expect(log.serverTexts().sort()).toEqual(
+        [
+          `Предложение было принято ${name}.`,
+          'По заказу «Лендинг для кофейни» выбран другой исполнитель.',
+        ].sort(),
+      );
+      expect((await messageOf(customer, loser.id, lost))?.status).toBe(
+        'rejected',
+      );
+    });
   });
 });

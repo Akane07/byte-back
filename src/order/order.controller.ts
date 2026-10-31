@@ -126,6 +126,21 @@ export class OrderController {
     return this.orderService.archiveOrder(id, userId);
   }
 
+  @Patch(':id/cancel')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({
+    summary: 'Отменить свой заказ без исполнителя',
+    description:
+      'Заказ с исполнителем отменяется в чате: одна сторона предлагает, другая соглашается',
+  })
+  @ApiResponse({ status: 200, type: Order })
+  cancelOrder(
+    @UserId() userId: string,
+    @Param('id', ParseObjectIdPipe) id: string,
+  ) {
+    return this.orderService.cancelOrder(id, userId);
+  }
+
   @Delete(':id')
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Удалить свой заказ вместе с откликами' })
